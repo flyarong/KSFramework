@@ -25,7 +25,6 @@
 
 using System;
 using UnityEngine;
-using System.Collections;
 using System.IO;
 using KEngine;
 using UnityEditor;
@@ -51,7 +50,7 @@ namespace KSFramework.Editor
         /// <summary>
         /// 这里可以进行DLL篡改, 这里PostProcessScene时，DLL已经被生成了
         /// </summary>
-        [PostProcessScene]
+        //[PostProcessScene]
         private static void OnPostProcessScene()
         {
             if (!_hasBeforeBuildApp && !EditorApplication.isPlayingOrWillChangePlaymode)
@@ -59,18 +58,17 @@ namespace KSFramework.Editor
                 _hasBeforeBuildApp = true;
                 // 这里是编译前, 对Lua进行编译处理
                 Debug.Log("[LuaModuleEditor]Start compile lua script...");
-                var luaPath = AppEngine.GetConfig("KSFramework.Lua", "LuaPath");
-                var ext = AppEngine.GetConfig("KEngine", "AssetBundleExt");
+             
 
                 var luaCount = 0;
-                var editorLuaScriptPath = Path.Combine(KResourceModule.EditorProductFullPath, luaPath);
+                var editorLuaScriptPath = Path.Combine(KResourceModule.EditorProductFullPath, AppConfig.LuaPath);
                 editorLuaScriptPath = editorLuaScriptPath.Replace("\\", "/");
                 if (!Directory.Exists(editorLuaScriptPath))
                 {
                     Debug.LogError("[LuaModuleEditor]lua script path not exist!");
                     return;
                 }
-                var toDir = "Assets/StreamingAssets/" + luaPath;
+                var toDir = "Assets/StreamingAssets/" + AppConfig.LuaPath;
 
                 // 所有的Lua脚本拷贝到StreamingAssets
                 foreach (var path in Directory.GetFiles(editorLuaScriptPath, "*", SearchOption.AllDirectories))
@@ -78,7 +76,7 @@ namespace KSFramework.Editor
                     var cleanPath = path.Replace("\\", "/");
                     
                     var relativePath = cleanPath.Replace(editorLuaScriptPath+"/", "");
-                    var toPath = Path.Combine(toDir, relativePath) + ext;
+                    var toPath = Path.Combine(toDir, relativePath);
 
                     if (!Directory.Exists(Path.GetDirectoryName(toPath)))
                         Directory.CreateDirectory(Path.GetDirectoryName(toPath));

@@ -26,6 +26,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -35,6 +36,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using KEngine;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 namespace KEngine
 {
@@ -144,7 +146,7 @@ namespace KEngine
 
 
         /// <summary>
-        /// Destroy a game object's children
+        /// 清除一个GameObject下面所有的孩子
         /// </summary>
         /// <param name="go"></param>
         public static void DestroyGameObjectChildren(GameObject go)
@@ -513,7 +515,7 @@ namespace KEngine
                 ts.Days == 0 ? "" : ts.Days + "天",
                 ts.Hours == 0 ? "" : ts.Hours + "小时",
                 ts.Minutes == 0 ? "" : ts.Minutes + "分钟",
-                ts.Seconds == 0 ? "" : ts.Seconds + "秒");
+                ts.Seconds < 0 ? "0秒" : ts.Seconds + "秒");
 
             return timeStr;
         }
@@ -660,6 +662,24 @@ namespace KEngine
             return number.ToString();
         }
 
+        public static float GetPercent(float lhs,float rhs)
+        {
+            if (Math.Abs(lhs) < 0.0000001f || Math.Abs(rhs) < 0.0000001f) return 0;
+            return lhs / rhs;
+        }
+        
+        public static float GetPercent(long lhs,long rhs)
+        {
+            if (Math.Abs(lhs) < 0.0000001f || Math.Abs(rhs) < 0.0000001f) return 0;
+            return (float)lhs / (float)rhs;
+        }
+        
+        public static float GetPercent(int lhs,int rhs)
+        {
+            if (Math.Abs(lhs) < 0.0000001f || Math.Abs(rhs) < 0.0000001f) return 0;
+            return (float)lhs / (float)rhs;
+        }
+        
         // 仅用于捕获
         public static string[] Match(string find, string pattern)
         {
@@ -849,7 +869,7 @@ namespace KEngine
         //获取从父节点到自己的完整路径
         public static string GetRootPathName(UnityEngine.Transform transform)
         {
-            var pathName = "/" + transform.name;
+            var pathName = transform.name;
             while (transform.parent != null)
             {
                 transform = transform.parent;
@@ -920,7 +940,7 @@ namespace KEngine
             else
                 return from;
         }
-
+#if UNITY_5
         // 粒子特效比例缩放
         public static void ScaleParticleSystem(GameObject gameObj, float scale)
         {
@@ -938,7 +958,7 @@ namespace KEngine
                 gameObj.transform.localScale = new Vector3(scale, scale, 1);
             }
         }
-
+#endif
         //设置粒子系统的RenderQueue
         public static void SetParticleSystemRenderQueue(Transform parent, int renderQueue = 3900)
         {
@@ -1263,7 +1283,34 @@ namespace KEngine
         {
             return num.ToString("##" + sp + "###", System.Globalization.CultureInfo.InvariantCulture);
         }
-
+        
+        /// <summary>
+        /// 取本机主机ip
+        /// </summary>
+        /// <returns></returns>
+        public static string GetLocalIP()
+        {
+            try
+            {
+                string HostName = Dns.GetHostName(); //得到主机名
+                IPHostEntry IpEntry = Dns.GetHostEntry(HostName);
+                for (int i = 0; i < IpEntry.AddressList.Length; i++)
+                {
+                    //从IP地址列表中筛选出IPv4类型的IP地址
+                    //AddressFamily.InterNetwork表示此IP为IPv4,AddressFamily.InterNetworkV6表示此地址为IPv6类型
+                    if (IpEntry.AddressList[i].AddressFamily == AddressFamily.InterNetwork)
+                    {
+                        return IpEntry.AddressList[i].ToString();
+                    }
+                }
+                return "";
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+        
         /// <summary>
         /// Get IPAdress from IpHostEntry,  配合GetIpAddress
         /// </summary>
@@ -1310,8 +1357,157 @@ namespace KEngine
                     callback(ipAddress);
             }
         }
-    }
+        
+        public static List<GameObject> GetAllChild(GameObject obj)
+        {
+            List<GameObject> objList = new List<GameObject>();
+            objList.Add(obj);
+            var childCount = obj.transform.childCount;
+            for (int i = 0; i < childCount; i++)
+            {
+                var child = obj.transform.GetChild(i).gameObject;
+                var childList = GetAllChild(child);
+                objList.AddRange(childList);
+            }
 
+            return objList;
+        }
+        
+        /// <summary>
+        /// 文件大小格式化显示成KB，MB,GB
+        /// </summary>
+        /// <param name="size">字节</param>
+        public static String FormatFileSize(long size) {
+            int GB = 1024 * 1024 * 1024;
+            int MB = 1024 * 1024;
+            int KB = 1024;
+            
+            if (size / GB >= 1)
+            {
+                return Math.Round(size / (float)GB, 2) + "GB";
+            }
+            
+            if (size / MB >= 1)
+            {
+                return Math.Round(size / (float)MB, 2) + "MB";
+            }
+
+            if (size / KB >= 1)
+            {
+                return Math.Round(size / (float)KB, 2) + "KB";
+            }
+
+            return size + "B";
+        }
+        
+        public static void ExitGame()
+        {
+            if (Application.isEditor)
+            {
+                Log.Info("编辑器下不处理退出游戏");
+            }
+            else
+            {
+                Application.Quit();
+            }
+        }
+        
+         #region 批处理程序
+        
+        /// <summary>
+        /// 执行批处理命令
+        /// </summary>
+        /// <param name="command"></param>
+        /// <param name="workingDirectory"></param>
+        public static void ExecuteCommand(string command, bool showProgressBar = true,string workingDirectory = null)
+        {
+            var fProgress = .1f;
+#if UNITY_EDITOR
+           if(showProgressBar) UnityEditor.EditorUtility.DisplayProgressBar("KEditorUtils.ExecuteCommand", command, fProgress);
+#endif
+            try
+            {
+                string cmd;
+                string preArg;
+                var os = Environment.OSVersion;
+                if (os.ToString().Contains("Windows"))
+                {
+                    cmd = "cmd";
+                    preArg = " /c  ";
+                }
+                else
+                {
+                    cmd = "sh";
+                    preArg = "-c ";
+                }
+                Debug.Log($"[ExecuteCommand] os:{os.ToString()},cmd:{command}");
+                
+                using (var process = new Process())
+                {
+                    System.Console.InputEncoding = System.Text.Encoding.UTF8;
+                    if (workingDirectory != null)
+                        process.StartInfo.WorkingDirectory = workingDirectory;
+                    process.StartInfo.FileName = cmd;
+                    process.StartInfo.Arguments = preArg /*+ "\"" */+ command /*+ "\""*/;
+                    process.StartInfo.UseShellExecute = false;//false:运行时不显示cmd窗口
+                    process.StartInfo.CreateNoWindow = true;
+                    process.StartInfo.RedirectStandardInput = true;
+                    process.StartInfo.RedirectStandardOutput = true;
+                    process.StartInfo.RedirectStandardError = true;
+                    process.StartInfo.StandardOutputEncoding = Encoding.UTF8; //设置标准输出编码
+                    process.StartInfo.StandardErrorEncoding = Encoding.UTF8;
+                    if(showProgressBar) process.OutputDataReceived += new DataReceivedEventHandler(OutputReceived);
+                    process.ErrorDataReceived += new DataReceivedEventHandler(ErrorReceived);
+                    process.Start();
+                    
+                    process.BeginOutputReadLine();
+                    process.BeginErrorReadLine();
+    
+                    process.WaitForExit();//NOTE CMD执行中会卡住Unity主线程，如果无响应需要结束进程
+                    process.Close();
+                }
+            }
+            finally
+            {
+                #if UNITY_EDITOR
+                if(showProgressBar) UnityEditor.EditorUtility.ClearProgressBar();
+                #endif
+            }
+        }
+        
+        private static void OutputReceived(object sender,DataReceivedEventArgs e)
+        {
+            Debug.Log(e.Data);
+        }
+        
+        private static void ErrorReceived(object sender, DataReceivedEventArgs e)
+        {
+            if (e.Data!=null&&e.Data!=string.Empty)
+            {
+                Debug.LogError("Error::" + e.Data);
+            }
+        }
+        
+        private static void ExitReceived(object sender, EventArgs e)
+        {
+            //Debug.Log("Exit::"+e.ToString());
+        }
+
+        public static void ExecuteFile(string filePath,string args = "")
+        {
+            Debug.Log("[ExecuteFile]" + filePath);
+            using (var process = new Process())
+            {
+                var info = new ProcessStartInfo(filePath, args);
+                process.StartInfo = info;
+                process.Start();
+            }
+        }
+        
+        #endregion
+    }
+    
+    
     public class XMemoryParser<T>
     {
         private readonly int MaxCount;

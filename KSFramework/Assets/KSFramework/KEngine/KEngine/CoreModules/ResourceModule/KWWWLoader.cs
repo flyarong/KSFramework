@@ -49,11 +49,19 @@ namespace KEngine
 
         public float BeginLoadTime;
         public float FinishLoadTime;
+#pragma warning disable 0618
         public WWW Www;
-
+#pragma warning restore 0618
         public int Size
         {
-            get { return Www.size; }
+            get
+            {
+#if UNITY_2017_1_OR_NEWER
+                return Www.bytesDownloaded;
+#else
+                return Www.size;
+#endif
+            }
         }
 
         public float LoadSpeed
@@ -67,7 +75,11 @@ namespace KEngine
         }
 
         //public int DownloadedSize { get { return Www != null ? Www.bytesDownloaded : 0; } }
-
+        public override bool IsError
+        {
+            get { return Www!=null && !string.IsNullOrEmpty(Www.error); }
+        }
+        
         /// <summary>
         /// Use this to directly load WWW by Callback or Coroutine, pass a full URL.
         /// A wrapper of Unity's WWW class.
@@ -78,7 +90,7 @@ namespace KEngine
             return wwwLoader;
         }
 
-        protected override void Init(string url, params object[] args)
+        public override void Init(string url, params object[] args)
         {
             base.Init(url, args);
             WWWLoadersStack.Push(this); // 不执行开始加载，由www监控器协程控制
@@ -104,19 +116,12 @@ namespace KEngine
         /// <returns></returns>
         private IEnumerator CoLoad(string url)
         {
-#if UNITY_2017_1_OR_NEWER
-            //在Unity2017.1.1下，路径中包含两种分隔符(/和\),仅限windows平台
-            //比如：C:\Code\KSFramework\Product/Bundles/Windows/ui/login.prefab.k)会报: UriFormatException: Invalid URI: Invalid port number
-            //此处对路径处理成Unity标准路径格式：C:/Code/KSFramework/Product/Bundles/Windows/ui/login.prefab.k
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-            url = KTool.FormatToAssetUrl(url);
-#endif
-#endif
-            KResourceModule.LogRequest("WWW", url);
-            System.DateTime beginTime = System.DateTime.Now;
+            if(AppConfig.IsLogAbInfo)Log.Info("[Request] WWW, {1}", url);
 
             // 潜规则：不用LoadFromCache~它只能用在.assetBundle
+#pragma warning disable 0618
             Www = new WWW(url);
+#pragma warning restore 0618
             BeginLoadTime = Time.time;
             WWWLoadingCount++;
 
@@ -143,11 +148,10 @@ namespace KEngine
                 {
                     // TODO: Android下的错误可能是因为文件不存在!
                 }
-
-                string fileProtocol = KResourceModule.GetFileProtocol();
-                if (url.StartsWith(fileProtocol))
+                
+                if (url.StartsWith(KResourceModule.GetFileProtocol))
                 {
-                    string fileRealPath = url.Replace(fileProtocol, "");
+                    string fileRealPath = url.Replace(KResourceModule.GetFileProtocol, "");
                     Log.Error("File {0} Exist State: {1}", fileRealPath, System.IO.File.Exists(fileRealPath));
                 }
                 Log.Error("[KWWWLoader:Error]{0} {1}", Www.error, url);
@@ -157,7 +161,7 @@ namespace KEngine
             }
             else
             {
-                KResourceModule.LogLoadTime("WWW", url, beginTime);
+                
                 if (WWWFinishCallback != null)
                     WWWFinishCallback(url);
 
@@ -168,12 +172,12 @@ namespace KEngine
             // 预防WWW加载器永不反初始化, 造成内存泄露~
             if (Application.isEditor)
             {
-                while (GetCount<KWWWLoader>() > 0)
+                while (ABManager.GetCount<KWWWLoader>() > 0)
                     yield return null;
 
                 yield return new WaitForSeconds(5f);
 
-                while (Debug.isDebugBuild && !IsReadyDisposed)
+                while (!IsReadyDisposed)
                 {
                     Log.Error("[KWWWLoader]Not Disposed Yet! : {0}", this.Url);
                     yield return null;
@@ -211,7 +215,7 @@ namespace KEngine
             {
                 if (KResourceModule.LoadByQueue)
                 {
-                    while (GetCount<KWWWLoader>() != 0)
+                    while (ABManager.GetCount<KWWWLoader>() != 0)
                         yield return null;
                 }
                 while (WWWLoadingCount >= MAX_WWW_COUNT)

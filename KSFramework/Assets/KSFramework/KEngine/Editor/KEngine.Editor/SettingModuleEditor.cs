@@ -27,10 +27,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
-using DotLiquid;
 using KUnityEditorTools;
 using TableML.Compiler;
 using UnityEditor;
@@ -71,34 +68,7 @@ namespace KEngine.Editor
         /// </summary>
         public static CustomExtraStringDelegate CustomExtraString;
         public delegate string CustomExtraStringDelegate(TableCompileResult tableCompileResult);
-
-        /// <summary>
-        /// 编译出的后缀名, 可修改
-        /// </summary>
-        public static string SettingExtension
-        {
-            get
-            {
-                return AppEngine.GetConfig(KEngineDefaultConfigs.SettingExt);
-            }
-        }
-
-        /// <summary>
-        /// 生成代码吗？它的路径配置
-        /// </summary>
-        public static string SettingCodePath
-        {
-            get
-            {
-                var compilePath = AppEngine.GetConfig("KEngine.Setting", "SettingCompileCodePath", false);
-                if (string.IsNullOrEmpty(compilePath))
-                {
-                    return "Assets/AppSettings.cs"; // default value
-                }
-                return compilePath;
-            }
-        }
-
+        
         /// <summary>
         /// 标记，是否正在打开提示配置变更对话框
         /// </summary>
@@ -106,18 +76,17 @@ namespace KEngine.Editor
 
         static SettingModuleEditor()
         {
-            var path = SettingSourcePath;
-            if (Directory.Exists(path))
+            if (Directory.Exists(AppConfig.SettingSourcePath))
             {
                 // when build app, ensure compile ALL settings
-                KUnityEditorEventCatcher.OnBeforeBuildPlayerEvent -= CompileSettings;
-                KUnityEditorEventCatcher.OnBeforeBuildPlayerEvent += CompileSettings;
+                KUnityEditorEventCatcher.OnBeforeBuildAppEvent -= CompileSettings;
+                KUnityEditorEventCatcher.OnBeforeBuildAppEvent += CompileSettings;
                 // when play editor, ensure compile settings
                 KUnityEditorEventCatcher.OnWillPlayEvent -= QuickCompileSettings;
                 KUnityEditorEventCatcher.OnWillPlayEvent += QuickCompileSettings;
 
                 // watch files, when changed, compile settings
-                new KDirectoryWatcher(path, (o, args) =>
+                new KDirectoryWatcher(AppConfig.SettingSourcePath, (o, args) =>
                 {
                     if (_isPopUpConfirm) return;
 
@@ -129,18 +98,11 @@ namespace KEngine.Editor
                         _isPopUpConfirm = false;
                     });
                 });
-                Debug.Log("[SettingModuleEditor]Watching directory: " + SettingSourcePath);
+                Debug.Log("[SettingModuleEditor]Watching directory: " + AppConfig.SettingSourcePath);
             }
         }
 
-        static string SettingSourcePath
-        {
-            get
-            {
-                var sourcePath = AppEngine.GetConfig("KEngine.Setting", "SettingSourcePath");
-                return sourcePath;
-            }
-        }
+  
 
         [MenuItem("KEngine/Settings/Force Compile Settings + Code")]
         public static void CompileSettings()
@@ -158,7 +120,7 @@ namespace KEngine.Editor
         /// </summary>
         public static Action CustomCompileSettings;
         /// <summary>
-        /// 
+        /// do compile settings
         /// </summary>
         /// <param name="force">Whether or not,check diff.  false will be faster!</param>
         /// <param name="genCode">Generate static code?</param>
@@ -169,27 +131,36 @@ namespace KEngine.Editor
                 CustomCompileSettings();
                 return;
             }
-
-            var sourcePath = SettingSourcePath;//AppEngine.GetConfig("SettingSourcePath");
-            if (string.IsNullOrEmpty(sourcePath))
+            
+            List<TableCompileResult> results = null;
+            if (AppConfig.IsUseLuaConfig)
             {
-                Log.Error("Need to KEngineConfig: SettingSourcePath");
-                return;
+                Log.Info("Start Compile to lua");
+                var genParam = new GenParam()
+                {
+                    settingCodeIgnorePattern = AppConfig.SettingCodeIgnorePattern,
+                    genCSharpClass = false, genCodeFilePath = null, forceAll = true, ExportLuaPath = AppConfig.ExportLuaPath
+                };
+                var compilerParam = new CompilerParam() {CanExportTsv = false, ExportTsvPath = AppConfig.ExportTsvPath, ExportLuaPath = AppConfig.ExportLuaPath};
+                results = new BatchCompiler().CompileAll(AppConfig.SettingSourcePath, AppConfig.ExportLuaPath, genParam,compilerParam);     
             }
-            var compilePath = AppEngine.GetConfig("KEngine.Setting", "SettingCompiledPath");
-            if (string.IsNullOrEmpty(compilePath))
+            else
             {
-                Log.Error("Need to KEngineConfig: SettingCompiledPath");
-                return;
+                if (string.IsNullOrEmpty(AppConfig.ExportTsvPath))
+                {
+                    Log.Error("Need to KEngineConfig: ExportTsvPath");
+                    return;
+                }
+                Log.Info("Start Compile to c#+tsv");
+                
+                var template = force ? (forceTemplate ?? DefaultTemplate.GenCodeTemplateOneFile) : null; 
+                var genParam = new GenParam(){forceAll = force, genCSharpClass = true,genCodeFilePath = AppConfig.ExportCSharpPath,
+                    genCodeTemplateString = template,changeExtension = AppConfig.SettingExt,
+                    settingCodeIgnorePattern = AppConfig.SettingCodeIgnorePattern,nameSpace = "AppSettings"};
+                var compilerParam = new CompilerParam() {CanExportTsv = true, ExportTsvPath = AppConfig.ExportTsvPath, ExportLuaPath = null};
+                results = new BatchCompiler().CompileAll(AppConfig.SettingSourcePath, AppConfig.ExportTsvPath, genParam,compilerParam);
             }
-
-            var bc = new BatchCompiler();
-
-            var settingCodeIgnorePattern = AppEngine.GetConfig("KEngine.Setting", "SettingCodeIgnorePattern", false);
-            var template = force ? (forceTemplate ?? DefaultTemplate.GenCodeTemplate) : null; // 
-            var results = bc.CompileTableMLAll(sourcePath, compilePath, SettingCodePath, template, "AppSettings", SettingExtension, settingCodeIgnorePattern, force);
-
-            //            CompileTabConfigs(sourcePath, compilePath, SettingCodePath, SettingExtension, force);
+            
             var sb = new StringBuilder();
             foreach (var r in results)
             {

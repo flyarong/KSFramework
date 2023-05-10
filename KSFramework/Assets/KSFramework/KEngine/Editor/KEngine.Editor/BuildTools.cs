@@ -29,18 +29,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Text;
-using KEngine;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
-using Object = UnityEngine.Object;
 
 namespace KEngine.Editor
 {
-    [Obsolete("Please use BuildTools instead")]
-    public class KBuildTools : BuildTools
-    {
-    }
-
     public partial class BuildTools
     {
 #if UNITY_4
@@ -64,6 +58,7 @@ namespace KEngine.Editor
         [MenuItem("KEngine/AssetBundle/Clear assetBundleName exclude BundleResources")]
         public static void ClearOtherAssetBundleNames()
         {
+            string dir = ResourcesBuildDir;
             // Check marked asset bundle whether real
             foreach (var assetGuid in AssetDatabase.FindAssets(""))
             {
@@ -74,7 +69,7 @@ namespace KEngine.Editor
                 {
                     continue;
                 }
-                if (!assetPath.StartsWith(ResourcesBuildDir))
+                if (!assetPath.StartsWith(dir))
                 {
                     assetImporter.assetBundleName = null;
                 }
@@ -90,6 +85,33 @@ namespace KEngine.Editor
         public static void MakeAssetBundleNames()
         {
             var dir = ResourcesBuildDir;
+            int dirLength = dir.Length;
+            // set BundleResources's all bundle name
+            var files = Directory.GetFiles(dir, "*.*", SearchOption.AllDirectories);
+            foreach (var filepath in files)
+            {
+                if (filepath.EndsWith(".meta")) continue;
+
+                var importer = AssetImporter.GetAtPath(filepath);
+                if (importer == null)
+                {
+                    Log.Error("Not found: {0}", filepath);
+                    continue;
+                }
+                
+                var bundleName = filepath.Substring(dirLength, filepath.Length - dirLength);
+                var file = new FileInfo(filepath);
+                bundleName = bundleName.Replace( file.Extension,"" );//去掉后缀，原因：abBrowser中无法识别abName带有多个.
+                importer.assetBundleName = bundleName + AppConfig.AssetBundleExt;
+            }
+
+            Log.Info("Make all asset name successs!");
+        }
+        
+        [MenuItem("KEngine/AssetBundle/Clear [BundleResources] AB Name")]
+        public static void ClearAssetBundleNames()
+        {
+            var dir = ResourcesBuildDir;
             
             // set BundleResources's all bundle name
             foreach (var filepath in Directory.GetFiles(dir, "*.*", SearchOption.AllDirectories))
@@ -102,21 +124,20 @@ namespace KEngine.Editor
                     Log.Error("Not found: {0}", filepath);
                     continue;
                 }
-                var bundleName = filepath.Substring(dir.Length, filepath.Length - dir.Length);
-                importer.assetBundleName = bundleName + AppEngine.GetConfig(KEngineDefaultConfigs.AssetBundleExt);
+                importer.assetBundleName = null;
             }
 
-            Log.Info("Make all asset name successs!");
+            Log.Info("Clear all asset name successs!");
         }
-
+        
         /// <summary>
         /// 清理冗余，即无此资源，却有AssetBundle的, Unity 5 only
         /// </summary>
         [MenuItem("KEngine/AssetBundle/Clean Redundancies")]
         public static void CleanAssetBundlesRedundancies()
         {
-            var platformName = KResourceModule.BuildPlatformName;
-            var outputPath = GetExportPath(EditorUserBuildSettings.activeBuildTarget);
+            var platformName = KResourceModule.GetBuildPlatformName();
+            var outputPath = GetExportPath();
             var srcList = new List<string>(Directory.GetFiles(ResourcesBuildDir, "*.*", SearchOption.AllDirectories));
             for (var i = srcList.Count - 1; i >= 0; i--)
             {
@@ -148,7 +169,6 @@ namespace KEngine.Editor
                     }
                     else
                     {
-//                        AppEngine.GetConfig(KEngineDefaultConfigs.AssetBundleExt
                         // 去掉扩展名，因为AssetBundle额外扩展名
                         toList[i] = Path.ChangeExtension(rName, "");// 会留下最后句点
                         toList[i] = toList[i].Substring(0, toList[i].Length - 1); // 去掉句点
@@ -181,33 +201,44 @@ namespace KEngine.Editor
         [MenuItem("KEngine/AssetBundle/Build All to All Platforms")]
         public static void BuildAllAssetBundlesToAllPlatforms()
         {
+            var buildTargets = new List<BuildTargetGroup>()
+            {
+                BuildTargetGroup.iOS,
+                BuildTargetGroup.Android,
+                BuildTargetGroup.Standalone,
+
+            };
             var platforms = new List<BuildTarget>()
             {
                 BuildTarget.iOS,
                 BuildTarget.Android,
+#if UNITY_STANDALONE_WIN
                 BuildTarget.StandaloneWindows,
-                BuildTarget.StandaloneOSXIntel,
+#else  
+                BuildTarget.StandaloneOSX,
+#endif
             };
 
             // Build all support platforms asset bundle
-            var currentBuildTarget = EditorUserBuildSettings.activeBuildTarget;
-            platforms.Remove(currentBuildTarget);
+            var nowTargetGroup = EditorUserBuildSettings.selectedBuildTargetGroup;
+            var nowPlatform = EditorUserBuildSettings.activeBuildTarget;
+            buildTargets.Remove(nowTargetGroup);
+            platforms.Remove(nowPlatform);
             BuildAllAssetBundles();
-
-            foreach (var platform in platforms)
+            for (int i = 0; i < platforms.Count; i++)
             {
-                if (EditorUserBuildSettings.SwitchActiveBuildTarget(platform))
+                if (EditorUserBuildSettings.SwitchActiveBuildTarget(buildTargets[i],platforms[i]))
                     BuildAllAssetBundles();
             }
 
             // revert platform 
-            EditorUserBuildSettings.SwitchActiveBuildTarget(currentBuildTarget);
+            EditorUserBuildSettings.SwitchActiveBuildTarget(nowTargetGroup,nowPlatform);
         }
 
         [MenuItem("KEngine/AssetBundle/ReBuild All")]
         public static void ReBuildAllAssetBundles()
         {
-            var outputPath = GetExportPath(EditorUserBuildSettings.activeBuildTarget);
+            var outputPath = GetExportPath();
             Directory.Delete(outputPath, true);
 
             Debug.Log("Delete folder: " + outputPath);
@@ -224,10 +255,13 @@ namespace KEngine.Editor
                 return;
             }
             MakeAssetBundleNames();
-            var outputPath = GetExportPath(EditorUserBuildSettings.activeBuildTarget);
-            Log.Info("Asset bundle start build to: {0}", outputPath);
-            BuildPipeline.BuildAssetBundles(outputPath, BuildAssetBundleOptions.DeterministicAssetBundle, EditorUserBuildSettings.activeBuildTarget);
-            Log.Info("Asset bundle build success.");
+            var outputPath = GetExportPath();
+            KProfiler.BeginWatch("BuildAB");
+            Log.Info("AsseBundle start build to: {0}", outputPath);
+            //压缩算法不建议用Lzma，要用LZ4 . Lzma读全部的buffer Lz4一个一个block读取，只读取4字节
+            var opt = BuildAssetBundleOptions.DeterministicAssetBundle | BuildAssetBundleOptions.ChunkBasedCompression;//BuildAssetBundleOptions.AppendHashToAssetBundleName;
+            BuildPipeline.BuildAssetBundles(outputPath, opt, EditorUserBuildSettings.activeBuildTarget);
+            KProfiler.EndWatch("BuildAB","AsseBundle build Finish");
         }
 
 #endif
@@ -241,7 +275,7 @@ namespace KEngine.Editor
         /// <returns></returns>
         public static string MakeSureExportPath(string path, BuildTarget buildTarget, KResourceQuality quality)
         {
-            path = BuildTools.GetExportPath(buildTarget, quality) + path;
+            path = BuildTools.GetExportPath(quality) + path;
 
             path = path.Replace("\\", "/");
 
@@ -256,14 +290,11 @@ namespace KEngine.Editor
         /// <summary>
         /// Extra Flag ->   ex:  Android/  AndroidSD/  AndroidHD/
         /// </summary>
-        /// <param name="platfrom"></param>
         /// <param name="quality"></param>
         /// <returns></returns>
-        public static string GetExportPath(BuildTarget platfrom, KResourceQuality quality = KResourceQuality.Sd)
+        public static string GetExportPath(KResourceQuality quality = KResourceQuality.Sd)
         {
-            string basePath =
-                Path.GetFullPath(KEngine.AppEngine.GetConfig(KEngineDefaultConfigs.AssetBundleBuildRelPath));
-
+            string basePath = Path.GetFullPath(AppConfig.AssetBundleBuildRelPath);
             if (File.Exists(basePath))
             {
                 BuildTools.ShowDialog("路径配置错误: " + basePath);
@@ -275,7 +306,7 @@ namespace KEngine.Editor
             }
 
             string path = null;
-            var platformName = KResourceModule.BuildPlatformName;
+            var platformName = KResourceModule.GetBuildPlatformName();
             if (quality != KResourceQuality.Sd) // SD no need add
                 platformName += quality.ToString().ToUpper();
 
@@ -289,8 +320,14 @@ namespace KEngine.Editor
 
         public static void ClearConsole()
         {
-            Assembly assembly = Assembly.GetAssembly(typeof(SceneView));
+#if UNITY_2018_1_OR_NEWER
+            var assembly = System.Reflection.Assembly.GetAssembly(typeof(UnityEditor.ActiveEditorTracker));
+            var type = assembly.GetType("UnityEditor.LogEntries");
+#else
+            var assembly = Assembly.GetAssembly(typeof(SceneView));
             System.Type type = assembly.GetType("UnityEditorInternal.LogEntries");
+#endif
+ 
             MethodInfo method = type.GetMethod("Clear");
             method.Invoke(null, null);
         }
@@ -542,57 +579,36 @@ namespace KEngine.Editor
                 CopyFolder(subDir.FullName, dPath + "/" + subDir.Name);
             }
         }
-
+        
         /// <summary>
-        /// 是否有指定宏呢
+        /// windows下获取python的安装路径
         /// </summary>
-        /// <param name="symbol"></param>
-        /// <returns></returns>
-        public static bool HasDefineSymbol(string symbol)
+        public static string getPythonPath()
         {
-            string symbolStrs =
-                PlayerSettings.GetScriptingDefineSymbolsForGroup(EditorUserBuildSettings.selectedBuildTargetGroup);
-            List<string> symbols =
-                new List<string>(symbolStrs.Split(new char[] { ';' }, System.StringSplitOptions.RemoveEmptyEntries));
-            return symbols.Contains(symbol);
-        }
-
-        /// <summary>
-        /// 移除指定宏
-        /// </summary>
-        /// <param name="symbol"></param>
-        public static void RemoveDefineSymbols(string symbol)
-        {
-            foreach (BuildTargetGroup target in System.Enum.GetValues(typeof(BuildTargetGroup)))
+            string environment = Environment.GetEnvironmentVariable("Path");
+            string[] paths = environment.Split(';');
+            foreach (string path in paths)
             {
-                string symbolStr = PlayerSettings.GetScriptingDefineSymbolsForGroup(target);
-                List<string> symbols =
-                    new List<string>(symbolStr.Split(new char[] { ';' }, System.StringSplitOptions.RemoveEmptyEntries));
-                if (symbols.Contains(symbol))
-                    symbols.Remove(symbol);
-                PlayerSettings.SetScriptingDefineSymbolsForGroup(target, string.Join(";", symbols.ToArray()));
-            }
-        }
-
-        /// <summary>
-        /// 添加指定宏（不重复）
-        /// </summary>
-        /// <param name="symbol"></param>
-        public static void AddDefineSymbols(string symbol)
-        {
-            foreach (BuildTargetGroup target in System.Enum.GetValues(typeof(BuildTargetGroup)))
-            {
-                string symbolStr = PlayerSettings.GetScriptingDefineSymbolsForGroup(target);
-                List<string> symbols =
-                    new List<string>(symbolStr.Split(new char[] { ';' }, System.StringSplitOptions.RemoveEmptyEntries));
-                if (!symbols.Contains(symbol))
+                bool foundMatch = false;
+                try
                 {
-                    symbols.Add(symbol);
-                    PlayerSettings.SetScriptingDefineSymbolsForGroup(target, string.Join(";", symbols.ToArray()));
+                    foundMatch = Regex.IsMatch(path, @"\\Python\d{0,2}\-{0,1}\d{0,2}", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+                }
+                catch (ArgumentException ex)
+                {
+                    Log.LogError(ex.Message);
+                }
+
+                //var pathWithOutSlash = path.TrimEnd(new char[] {'\\'});
+                if (foundMatch && File.Exists(path + "python.exe"))
+                {
+                    return path + "python.exe";
                 }
             }
-        }
 
+            return null;
+        }
+        
         public static bool IsWin32
         {
             get
@@ -603,20 +619,27 @@ namespace KEngine.Editor
         }
 
         // 执行Python文件！获取返回值
-        public static string ExecutePyFile(string pyFileFullPath, string arguments)
+        public static string ExecutePyFile(string pyFileFullPath, string arguments,bool useSetupPath = true)
         {
             string pythonExe = null;
             if (IsWin32)
             {
-                var guids = AssetDatabase.FindAssets("py");
-                foreach (var guid in guids)
+                if (useSetupPath)
                 {
-                    var assetPath = AssetDatabase.GUIDToAssetPath(guid);
-
-                    if (Path.GetFileName(assetPath) == "py.exe")
+                    pythonExe = getPythonPath();
+                }
+                else
+                {
+                    var guids = AssetDatabase.FindAssets("py");
+                    foreach (var guid in guids)
                     {
-                        pythonExe = assetPath; // Python地址
-                        break;
+                        var assetPath = AssetDatabase.GUIDToAssetPath(guid);
+
+                        if (Path.GetFileName(assetPath) == "py.exe")
+                        {
+                            pythonExe = assetPath; // Python地址
+                            break;
+                        }
                     }
                 }
             }
@@ -637,9 +660,6 @@ namespace KEngine.Editor
             {
                 process.StartInfo.FileName = pythonExe;
                 process.StartInfo.Arguments = pyFileFullPath + " " + arguments;
-                //process.StartInfo.UseShellExecute = false;
-                ////process.StartInfo.CreateNoWindow = true;
-                //process.StartInfo.RedirectStandardOutput = true;
                 process.StartInfo.UseShellExecute = false;
                 process.StartInfo.CreateNoWindow = true;
                 process.StartInfo.RedirectStandardOutput = true;
@@ -661,59 +681,6 @@ namespace KEngine.Editor
                 return allOutput;
             }
         }
-
-        /* TODO: CFolderSyncTool
-            public static void DeleteLink(string linkPath)
-            {
-                var os = Environment.OSVersion;
-                if (os.ToString().Contains("Windows"))
-                {
-                    CFolderSyncTool.ExecuteCommand(string.Format("rmdir \"{0}\"", linkPath));
-                }
-                else if (os.ToString().Contains("Unix"))
-                {
-                    CFolderSyncTool.ExecuteCommand(string.Format("rm -Rf \"{0}\"", linkPath));
-                }
-                else
-                {
-                    Log.Error("[SymbolLinkFolder]Error on OS: {0}", os.ToString());
-                }
-            }
-
-            public static void SymbolLinkFolder(string srcFolderPath, string targetPath)
-            {
-                var os = Environment.OSVersion;
-                if (os.ToString().Contains("Windows"))
-                {
-                    CFolderSyncTool.ExecuteCommand(string.Format("mklink /J \"{0}\" \"{1}\"", targetPath, srcFolderPath));
-                }
-                else if (os.ToString().Contains("Unix"))
-                {
-                    var fullPath = Path.GetFullPath(targetPath);
-                    if (fullPath.EndsWith("/"))
-                    {
-                        fullPath = fullPath.Substring(0, fullPath.Length - 1);
-                        fullPath = Path.GetDirectoryName(fullPath);
-                    }
-                    CFolderSyncTool.ExecuteCommand(string.Format("ln -s {0} {1}", Path.GetFullPath(srcFolderPath), fullPath));
-                }
-                else
-                {
-                    Log.Error("[SymbolLinkFolder]Error on OS: {0}", os.ToString());
-                }
-            }
-            */
-
-        //[Obsolete("Please use KAssetVersionControl")]
-        //public static bool CheckNeedBuildWithMeta(params string[] assetPath)
-        //{
-        //    return KAssetVersionControl.TryCheckNeedBuildWithMeta(assetPath);
-        //}
-        //[Obsolete("Please use KAssetVersionControl")]
-        //public static void MarkBuildVersion(string assetPath)
-        //{
-        //    KAssetVersionControl.TryMarkBuildVersion(assetPath);
-        //}
     }
 
 }

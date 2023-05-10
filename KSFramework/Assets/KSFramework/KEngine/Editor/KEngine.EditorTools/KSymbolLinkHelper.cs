@@ -10,7 +10,7 @@
 
 using System;
 using System.IO;
-using KUnityEditorTools;
+using KEngine;
 using UnityEngine;
 
 namespace KUnityEditorTools
@@ -29,11 +29,11 @@ namespace KUnityEditorTools
             var os = Environment.OSVersion;
             if (os.ToString().Contains("Windows"))
             {
-                KEditorUtils.ExecuteCommand(String.Format("rmdir \"{0}\"", linkPath));
+                KTool.ExecuteCommand(String.Format("rmdir \"{0}\"", linkPath));
             }
             else if (os.ToString().Contains("Unix"))
             {
-                KEditorUtils.ExecuteCommand(String.Format("rm -Rf \"{0}\"", linkPath));
+                KTool.ExecuteCommand(String.Format("rm -Rf \"{0}\"", linkPath));
             }
             else
             {
@@ -46,7 +46,7 @@ namespace KUnityEditorTools
             var os = Environment.OSVersion;
             if (os.ToString().Contains("Windows"))
             {
-                KEditorUtils.ExecuteCommand(String.Format("mklink /J \"{0}\" \"{1}\"", targetPath, srcFolderPath));
+                KTool.ExecuteCommand(String.Format("mklink /J \"{0}\" \"{1}\"", targetPath, srcFolderPath));
             }
             else if (os.ToString().Contains("Unix"))
             {
@@ -56,7 +56,7 @@ namespace KUnityEditorTools
                     fullPath = fullPath.Substring(0, fullPath.Length - 1);
                     fullPath = Path.GetDirectoryName(fullPath);
                 }
-                KEditorUtils.ExecuteCommand(String.Format("ln -s {0} {1}", Path.GetFullPath(srcFolderPath), fullPath));
+                KTool.ExecuteCommand(String.Format("ln -s {0} {1}", Path.GetFullPath(srcFolderPath), fullPath));
             }
             else
             {
@@ -72,10 +72,12 @@ namespace KUnityEditorTools
         {
             if (Directory.Exists(assetBundlesLinkPath))
             {
-                foreach (var dirPath in Directory.GetDirectories(assetBundlesLinkPath))
+                var dirs = Directory.GetDirectories(assetBundlesLinkPath);
+                foreach (var dirPath in dirs)
                 {
                     DeleteLink(dirPath);
                 }
+                DeleteLink(assetBundlesLinkPath);
             }
 
         }

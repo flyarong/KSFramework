@@ -31,11 +31,10 @@ using UnityEngine;
 
 namespace KEngine
 {
-
     /// <summary>
     /// 读取字节，调用WWW, 会自动识别Product/Bundles/Platform目录和StreamingAssets路径
     /// </summary>
-    public class HotBytesLoader : AbstractResourceLoader
+    public class KBytesLoader : AbstractResourceLoader
     {
         public byte[] Bytes { get; private set; }
 
@@ -45,49 +44,37 @@ namespace KEngine
         private KWWWLoader _wwwLoader;
 
         private LoaderMode _loaderMode;
-
-        public static HotBytesLoader Load(string path, LoaderMode loaderMode)
+        
+        public static KBytesLoader Load(string path, LoaderMode loaderMode)
         {
-            var newLoader = AutoNew<HotBytesLoader>(path, null, false, loaderMode);
+            var newLoader = AutoNew<KBytesLoader>(path, null, false, loaderMode);
             return newLoader;
         }
+        
+        public override void Init(string url, params object[] args)
+        {
+            base.Init(url, args);
 
-        private string _fullUrl;
-
+            _loaderMode = (LoaderMode)args[0];
+            KResourceModule.Instance.StartCoroutine(CoLoad(url));
+        }
+        
         private IEnumerator CoLoad(string url)
         {
-            var getResPathType = KResourceModule.GetResourceFullPath(url, _loaderMode == LoaderMode.Async, out _fullUrl);
-            if (getResPathType == KResourceModule.GetResourceFullPathType.Invalid)
-            {
-                if (Debug.isDebugBuild)
-                    Log.Error("[HotBytesLoader]Error Path: {0}", url);
-                OnFinish(null);
-                yield break;
-            }
-
             if (_loaderMode == LoaderMode.Sync)
             {
-                // 存在应用内的，StreamingAssets内的，同步读取；否则去PersitentDataPath
-                if (getResPathType == KResourceModule.GetResourceFullPathType.InApp)
-                {
-                    if (Application.isEditor) // Editor mode : 读取Product配置目录
-                    {
-                        var loadSyncPath = Path.Combine(KResourceModule.ProductPathWithoutFileProtocol, url);
-                        Bytes = KResourceModule.ReadAllBytes(loadSyncPath);
-                    }
-                    else // product mode: read streamingAssetsPath
-                    {
-                        Bytes = KResourceModule.LoadSyncFromStreamingAssets(url);
-                    }
-                }
-                else
-                {
-                    Bytes = KResourceModule.ReadAllBytes(_fullUrl);
-                }
+                Bytes = KResourceModule.LoadAssetsSync(url);
             }
             else
             {
-
+                string _fullUrl;
+                var getResPathType = KResourceModule.GetResourceFullPath(url, _loaderMode == LoaderMode.Async, out _fullUrl);
+                if (getResPathType == KResourceModule.GetResourceFullPathType.Invalid)
+                {
+                    Log.Error("[HotBytesLoader]Error Path: {0}", url);
+                    OnFinish(null);
+                    yield break;
+                }
                 _wwwLoader = KWWWLoader.Load(_fullUrl);
                 while (!_wwwLoader.IsCompleted)
                 {
@@ -97,17 +84,16 @@ namespace KEngine
 
                 if (!_wwwLoader.IsSuccess)
                 {
-                    //if (AssetBundlerLoaderErrorEvent != null)
-                    //{
-                    //    AssetBundlerLoaderErrorEvent(this);
-                    //}
                     Log.Error("[HotBytesLoader]Error Load WWW: {0}", url);
                     OnFinish(null);
                     yield break;
                 }
-
+#if UNITY_2018_1_OR_NEWER //TODO 换成WebRequst
+                //Bytes = _wwwLoader.Www.downloadHandler.data;
                 Bytes = _wwwLoader.Www.bytes;
-
+#else
+                Bytes = _wwwLoader.Www.bytes;
+#endif
             }
 
             OnFinish(Bytes);
@@ -121,16 +107,6 @@ namespace KEngine
                 _wwwLoader.Release();
             }
         }
-
-        protected override void Init(string url, params object[] args)
-        {
-            base.Init(url, args);
-
-            _loaderMode = (LoaderMode)args[0];
-            KResourceModule.Instance.StartCoroutine(CoLoad(url));
-
-        }
-
     }
 
 }

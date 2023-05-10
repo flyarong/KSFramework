@@ -56,7 +56,7 @@ namespace KEngine
             loader.SetDescEvent += (newDesc) =>
             {
                 if (loader.RefCount > 0)
-                    newHelpGameObject.name = getName();
+                    newHelpGameObject.SetName(getName());
             };
 
 
@@ -72,8 +72,10 @@ namespace KEngine
 
         private void Update()
         {
-            RefCount = TheLoader.RefCount;
-            FinishUsedTime = TheLoader.FinishUsedTime;
+            if (TheLoader.RefCount != RefCount)
+                RefCount = TheLoader.RefCount;
+            if (!TheLoader.FinishUsedTime.Equals(FinishUsedTime))
+                FinishUsedTime = TheLoader.FinishUsedTime;
         }
 
         private void OnApplicationQuit()

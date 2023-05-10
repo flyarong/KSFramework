@@ -45,15 +45,6 @@ namespace KEngine
             get { return ResultObject as Object; }
         }
 
-        private bool IsLoadAssetBundle;
-		public static bool IsEditorLoadAsset
-		{
-			get
-			{
-	            return AppEngine.GetConfig("KEngine", "IsEditorLoadAsset").ToInt32() != 0 && Application.isEditor;
-			}
-		}
-
         public override float Progress
         {
             get
@@ -69,8 +60,8 @@ namespace KEngine
         public static AssetFileLoader Load(string path, AssetFileBridgeDelegate assetFileLoadedCallback = null, LoaderMode loaderMode = LoaderMode.Async)
         {
             // 添加扩展名
-			if (!IsEditorLoadAsset)
-	            path = path + AppEngine.GetConfig(KEngineDefaultConfigs.AssetBundleExt);
+			if (!KResourceModule.IsEditorLoadAsset)
+	            path = path + AppConfig.AssetBundleExt;
 
             LoaderDelgate realcallback = null;
             if (assetFileLoadedCallback != null)
@@ -81,7 +72,7 @@ namespace KEngine
             return AutoNew<AssetFileLoader>(path, realcallback, false, loaderMode);
         }
 
-        protected override void Init(string url, params object[] args)
+        public override void Init(string url, params object[] args)
         {
             var loaderMode = (LoaderMode)args[0];
 
@@ -91,14 +82,11 @@ namespace KEngine
 
         private IEnumerator _Init(string path, LoaderMode loaderMode)
         {
-            IsLoadAssetBundle = AppEngine.GetConfig("KEngine", "IsLoadAssetBundle").ToInt32() != 0;
-
             Object getAsset = null;
-
-			if (IsEditorLoadAsset) 
+            if (KResourceModule.IsEditorLoadAsset) 
 			{
 #if UNITY_EDITOR
-				if (path.EndsWith(".unity"))
+                if (path.EndsWith(".unity") || path.StartsWith("Scene/"))
 				{
 					// scene
 					getAsset = KResourceModule.Instance;
@@ -112,14 +100,9 @@ namespace KEngine
 						Log.Error("Asset is NULL(from {0} Folder): {1}", KEngineDef.ResourcesBuildDir, path);
 					}
 				}
-#else
-				Log.Error("`IsEditorLoadAsset` is Unity Editor only");
-
 #endif
-				OnFinish(getAsset);
-
-			}
-            else if (!IsLoadAssetBundle)
+            }
+            else if (!AppConfig.IsLoadAssetBundle)
             {
                 string extension = Path.GetExtension(path);
                 path = path.Substring(0, path.Length - extension.Length); // remove extensions
@@ -129,7 +112,6 @@ namespace KEngine
                 {
                     Log.Error("Asset is NULL(from Resources Folder): {0}", path);
                 }
-                OnFinish(getAsset);
             }
             else
             {
@@ -202,7 +184,7 @@ namespace KEngine
                 }
 #endif
 
-                KResourceModule.LogLoadTime("AssetFileBridge", path, beginTime);
+                if(AppConfig.IsLogAbLoadCost)　Log.Info("[Finsh] Load {0}, {1}, {2}s", "AssetFileBridge", path, (System.DateTime.Now - beginTime).TotalSeconds);
 
                 if (getAsset == null)
                 {
@@ -211,7 +193,7 @@ namespace KEngine
 
             }
 
-            if (Application.isEditor)
+            if (AppConfig.UseAssetDebugger)
             {
                 if (getAsset != null)
                     KResoourceLoadedAssetDebugger.Create(getAsset.GetType().Name, Url, getAsset as Object);
@@ -227,7 +209,7 @@ namespace KEngine
                 }
             }
 
-            if (getAsset != null && IsLoadAssetBundle)
+            if (getAsset != null)
             {
                 // 更名~ 注明来源asset bundle 带有类型
                 getAsset.name = String.Format("{0}~{1}", getAsset, Url);
@@ -255,10 +237,13 @@ namespace KEngine
         protected override void DoDispose()
         {
             base.DoDispose();
-            _bundleLoader.Release(); // 释放Bundle(WebStream)
+
+            if (_bundleLoader != null)
+                _bundleLoader.Release(); // 释放Bundle(WebStream)
+
             //if (IsFinished)
             {
-                if (!IsLoadAssetBundle)
+                if (!AppConfig.IsLoadAssetBundle)
                 {
                     Resources.UnloadAsset(ResultObject as Object);
                 }

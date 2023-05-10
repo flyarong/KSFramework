@@ -46,20 +46,20 @@ namespace KEngine
     }
 
     /// <summary>
-    /// Cosmos Engine - Unity3D Game Develop Framework
+    /// KEngine - Unity3D Game Develop Framework
     /// </summary>
     public class AppEngine : MonoBehaviour
     {
-        public static bool IsDebugBuild { get; private set; } // cache Debug.isDebugBuild for multi thread
 #if !DEBUG_DISABLE
         public bool ShowFps = true; //show fps
 #else
         public bool ShowFps = false;
 #endif
+        public bool UseDevFunc = true;
         /// <summary>
-        /// To Display FPS in the Debug Mode (Debug.isDebugBuild is true)
+        /// To Display FPS in the Debug Mode (AppConfig.IsDebugBuild is true)
         /// </summary>
-        static FpsWatcher RenderWatcher { get; set; } // 帧数监听器
+        public static FpsWatcher RenderWatcher { get; set; } // 帧数监听器
 
         /// <summary>
         /// In Init func has a check if the user has the write privillige
@@ -90,12 +90,9 @@ namespace KEngine
         //        return _appVersion;
         //    }
         //}
-
+        
         /// <summary>
-        /// Read Tab file (CEngineConfig.txt), cache to here
-        /// </summary>
-        /// <summary>
-        /// Modules passed from the CosmosEngine.New function. All your custom game logic modules
+        /// Modules passed from the AppEngine.New function. All your custom game logic modules
         /// </summary>
         public IList<IModuleInitable> GameModules { get; private set; }
 
@@ -104,6 +101,12 @@ namespace KEngine
         /// </summary>
         public bool IsInited { get; private set; }
 
+        public bool IsBeforeInit { get; private set; }
+
+        public bool IsOnInit { get; private set; }
+
+        public bool IsStartGame { get; private set; }
+
         /// <summary>
         /// AppEngine must be new by static function New(xxx)!
         /// This is a flag to identity whether AddComponent from Unity
@@ -111,19 +114,20 @@ namespace KEngine
         private bool _isNewByStatic = false;
 
         public IAppEntry AppEntry { get; private set; }
-
-        [Obsolete("Use New(GameObject, IAppEntry, IModuleInitable[]) instead!")]
-        public static AppEngine New(GameObject gameObjectToAttach, IModuleInitable[] modules)
-        {
-            return New(gameObjectToAttach, null, modules);
-        }
-
+        public static bool IsApplicationQuit = false;
+        public static bool IsApplicationFocus = true;
+        public static bool IsAppPlaying = false;
+        public static Action UpdateEvent;
+        public static Action UpdatePer300msEvent;
+        public static Action UpdatePer1sEvent;
+        
         /// <summary>
         /// Engine entry.... all begins from here
         /// </summary>
         public static AppEngine New(GameObject gameObjectToAttach, IAppEntry entry, IList<IModuleInitable> modules)
         {
             Debuger.Assert(gameObjectToAttach != null && modules != null);
+            AppConfig.Init();
             AppEngine appEngine = gameObjectToAttach.AddComponent<AppEngine>();
             appEngine._isNewByStatic = true;
             appEngine.GameModules = modules;
@@ -134,9 +138,7 @@ namespace KEngine
 
         private void Awake()
         {
-            IsDebugBuild = Debug.isDebugBuild;
-            //ShowFps = IsDebugBuild;
-
+            Application.targetFrameRate = 60;
             if (EngineInstance != null)
             {
                 Log.Error("Duplicated Instance Engine!!!");
@@ -149,15 +151,17 @@ namespace KEngine
 
         void Start()
         {
+            IsAppPlaying = true;
+            if(Application.platform == RuntimePlatform.WindowsPlayer || Application.platform == RuntimePlatform.OSXPlayer)
+                LogFileManager.Start();
             Debuger.Assert(_isNewByStatic);
         }
 
         private void Init()
         {
-            IsRootUser = KTool.HasWriteAccessToFolder(Application.dataPath); // Root User运行时，能穿越沙盒写DataPath, 以此为依据
-
-            if (Debug.isDebugBuild)
+            if (AppConfig.IsLogDeviceInfo)
             {
+                IsRootUser = KTool.HasWriteAccessToFolder(Application.dataPath); // Root User运行时，能穿越沙盒写DataPath, 以此为依据
                 Log.Info("====================================================================================");
                 Log.Info("Application.platform = {0}", Application.platform);
                 Log.Info("Application.dataPath = {0} , WritePermission: {1}", Application.dataPath, IsRootUser);
@@ -182,20 +186,23 @@ namespace KEngine
         private IEnumerator DoInit()
         {
             yield return null;
-
+            IsBeforeInit = true;
             if (AppEntry != null)
+            {
                 yield return StartCoroutine(AppEntry.OnBeforeInit());
+            }
 
 
-//            if (GameModules != null)
+            IsOnInit = true;
             yield return StartCoroutine(DoInitModules(GameModules));
 
+            IsStartGame = true;
             if (AppEntry != null)
             {
                 yield return StartCoroutine(AppEntry.OnGameStart());
 
             }
-
+            UnityThreadDetect.Start();
             IsInited = true;
         }
 
@@ -205,13 +212,13 @@ namespace KEngine
             var startMem = 0f;
             foreach (IModuleInitable initModule in modules)
             {
-                if (Debug.isDebugBuild)
+                if (AppConfig.IsDebugBuild)
                 {
                     startInitTime = Time.time;
                     startMem = GC.GetTotalMemory(false);
                 }
                 yield return StartCoroutine(initModule.Init());
-                if (Debug.isDebugBuild)
+                if (AppConfig.IsDebugBuild)
                 {
                     var nowMem = GC.GetTotalMemory(false);
                     Log.Info("Init Module: #{0}# Time:{1}, DiffMem:{2}, NowMem:{3}", initModule.GetType().FullName,
@@ -220,6 +227,7 @@ namespace KEngine
             }
         }
 
+        private float time_update_per1s,time_update_per300ms;
 #if USE_UGUI_FPS
         protected virtual void Update()
 #else
@@ -232,76 +240,57 @@ namespace KEngine
                     RenderWatcher = new FpsWatcher(0.95f);
                 RenderWatcher.OnUIUpdate();
             }
-        }
 
-        private static EngineConfigs _engineConfigs;
-
-        /// <summary>
-        /// Ensure Configs load
-        /// </summary>
-        /// <param name="forceReload"></param>
-        public static EngineConfigs PreloadConfigs(bool forceReload = false)
-        {
-            if (_engineConfigs != null && !forceReload)
-                return _engineConfigs;
-
-            string configContent = null;
-//            if (Application.isEditor && !Application.isPlaying)
-//            {
-//                // prevent Resources.Load fail on Batch Mode
-//                var filePath = "Assets/Resources/AppConfigs.txt";
-//                if (File.Exists(filePath))
-//                    configContent = System.IO.File.ReadAllText(filePath);
-//            }
-//            else
-//            {
-                var textAsset = Resources.Load<TextAsset>("AppConfigs");
-                if (textAsset != null)
-                    configContent = textAsset.text;
-//            }
-
-            _engineConfigs = new EngineConfigs(configContent);
-            return _engineConfigs;
-        }
-
-        /// <summary>
-        /// Get config from ini config file or the default ini string
-        /// </summary>
-        /// <param name="section"></param>
-        /// <param name="key"></param>
-        /// <param name="showLog"></param>
-        /// <returns></returns>
-        public static string GetConfig(string section, string key, bool showLog = true)
-        {
-            PreloadConfigs();
-            var value = _engineConfigs.GetConfig(section, key, false);
-            if (value == null)
+            UpdateEvent?.Invoke();
+            float time = Time.time;
+            if (time > time_update_per1s)
             {
-                if (showLog)
-                    Log.Error("Cannot get config, section: {0}, key: {1}", section, key);
+                time_update_per1s = time + 1.0f;
+                UpdatePer1sEvent?.Invoke();
             }
-            return value;
+            if (time > time_update_per300ms)
+            {
+                time_update_per300ms = time + 0.3f;
+                UpdatePer300msEvent?.Invoke();
+            }
         }
 
-        public static string GetConfig(KEngineDefaultConfigs cfg)
+        private void FixedUpdate()
         {
-            return GetConfig("KEngine", cfg.ToString());
+            Log.TotalFrame ++;
         }
 
+        void OnApplicationQuit()
+        {
+            IsApplicationQuit = true;
+            IsAppPlaying = false;
+            if(Application.platform == RuntimePlatform.WindowsPlayer || Application.platform == RuntimePlatform.OSXPlayer)
+             LogFileManager.Destory();
+            LogFileManager.CloseStream();
+            
+            
+        }
+        
+        void OnApplicationFocus(bool focus)
+        {
+            IsApplicationFocus = focus;
+        }
+        
+        /// <summary>
+        /// 清除数据，比如切换帐号/低内存等清空缓存数据
+        /// </summary>
+        public void ClearModuleData()
+        {
+            var modules = GameModules;
+            foreach (IModuleInitable initModule in modules)
+            {
+                initModule.ClearData();
+            }
+        }
     }
 
-    public enum KEngineDefaultConfigs
-    {
-        AssetBundleExt,
-        ProductRelPath,
-        AssetBundleBuildRelPath, // FromRelPath
-        // StreamingAssets inner folder name, when build, will link the Bundle build Path to here
-        StreamingBundlesFolderName,
 
-        SettingExt,
-    }
-
-    class FpsWatcher
+    public class FpsWatcher
     {
         private float Value;
         private float Sensitivity;
@@ -327,19 +316,19 @@ namespace KEngine
             canvasGameObj.renderMode = RenderMode.ScreenSpaceOverlay;
             var fpsTextObj = new GameObject("FPSText").AddComponent<Text>();
             fpsTextObj.transform.SetParent(canvasGameObj.transform);
-            fpsTextObj.rectTransform.pivot = new Vector2(0, 1);
-            fpsTextObj.rectTransform.localPosition = Vector3.zero;
-            fpsTextObj.rectTransform.anchorMin = new Vector2(0, 1);
-            fpsTextObj.rectTransform.anchorMax = new Vector2(0, 1);
-            fpsTextObj.rectTransform.sizeDelta = new Vector2(300, 100);
+            var rectTransform = fpsTextObj.rectTransform;
+            //位置固定在左下角
+            rectTransform.pivot = new Vector2(0, 0);
+            rectTransform.anchoredPosition = new Vector3(2,-2,0);
+            rectTransform.anchorMin = new Vector2(0, 0);
+            rectTransform.anchorMax = new Vector2(0, 0);
+            rectTransform.sizeDelta = new Vector2(300, 20);
             var font = Resources.GetBuiltinResource<Font>("Arial.ttf");
             fpsTextObj.font = font;
             CacheText = fpsTextObj;
             GameObject.DontDestroyOnLoad(canvasGameObj);
             _Frames = 0;
-            _LastInterval = Time.realtimeSinceStartup; 
-            Log.Debug("create fps canvas");
-
+            _LastInterval = Time.realtimeSinceStartup;
 #endif
         }
 
@@ -354,19 +343,13 @@ namespace KEngine
                 
                 _cacheFPSStr = string.Format("FPS: {0}", (int)_FPS);
             }  
-            
+
             if (Time.frameCount % 30 == 0 || _cacheMemoryStr == null || _cacheFPSStr == null)
             {
-                _cacheMemoryStr = string.Format("Memory: {0:F3}KB",
-#if UNITY_5_5 || UNITY_2017_1_OR_NEWER
-					UnityEngine.Profiling.Profiler.GetMonoUsedSize() / 1024f
-#else
-					UnityEngine.Profiler.GetMonoUsedSize() / 1024f
-#endif
-				);
+                _cacheMemoryStr = string.Format("(mem:{0:F1}MB)", Log.GetMonoUseMemory());
 #if USE_UGUI_FPS
                 if (CacheText == null) return;
-                CacheText.text = _cacheMemoryStr + "\n" + _cacheFPSStr;
+                CacheText.SetText(_cacheFPSStr  + " "+ _cacheMemoryStr);
 #endif
             }
 

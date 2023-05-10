@@ -24,20 +24,21 @@
 #endregion
 using System;
 using UnityEngine;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using KEngine;
 using KEngine.Editor;
 using KUnityEditorTools;
 using NPOI.HSSF.UserModel;
-using NPOI.SS.UserModel;
 using UnityEditor;
 
 namespace KSFramework.Editor
 {
+    /// <summary>
+    /// 此方式已废弃，建议在开发过程中文字就从语言包中读取:I18N.Get()
+    /// 历史：有个项目是把文字写在代码中，多语言版本做法是从代码中收集文字到excel进行翻译，运行时再替换为翻译后的内容，后面项目已改进，所以废弃此方法。
+    /// </summary>
     public class I18NEditor
     {
         // default collector
@@ -59,38 +60,14 @@ namespace KSFramework.Editor
             }
             return list;
         }
-
-        /// <summary>
-        /// 设置有多少种语言
-        /// </summary>
-        private static string[] I18NLanguages
-        {
-            get
-            {
-                var langs = AppEngine.GetConfig("KSFramework.I18N", "I18NLanguages");
-                return langs.Split(',');
-            }
-        }
-
-        /// <summary>
-        /// excel存放地址
-        /// </summary>
-        public static string SettingSourcePath
-        {
-            get
-            {
-                var settingSource = AppEngine.GetConfig("KEngine.Setting", "SettingSourcePath");
-                return settingSource;
-            }
-        }
-
-        [MenuItem("KEngine/I18N/Collect All")]
+        
+        //[MenuItem("KEngine/I18N/Collect All")]
         public static void CollectAll()
         {
             // 如果没有，先确保创建新的
-            foreach (var lang in I18NLanguages)
+            foreach (var lang in AppConfig.I18NLanguages)
             {
-                var xlsPath = string.Format("{0}/I18N/{1}.xlsx", SettingSourcePath, lang);
+                var xlsPath = string.Format("{0}/I18N/{1}.xlsx", AppConfig.SettingSourcePath, lang);
                 var xlsDir = Path.GetDirectoryName(xlsPath);
                 if (!Directory.Exists(xlsDir))
                     Directory.CreateDirectory(xlsDir);
@@ -162,9 +139,9 @@ namespace KSFramework.Editor
         /// <returns></returns>
         private static bool WriteExcel(I18NItems theList)
         {
-            foreach (var lang in I18NLanguages)
+            foreach (var lang in AppConfig.I18NLanguages)
             {
-                var excelPath = string.Format("{0}/I18N/{1}.xlsx", SettingSourcePath, lang);
+                var excelPath = string.Format("{0}/I18N/{1}.xlsx", AppConfig.SettingSourcePath, lang);
 
                 var changedFile = false;
                 ExcelFile excelFile;

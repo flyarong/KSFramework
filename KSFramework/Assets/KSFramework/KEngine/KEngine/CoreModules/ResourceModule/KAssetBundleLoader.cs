@@ -42,18 +42,20 @@ namespace KEngine
         Async,
         Sync,
     }
-
-    // 調用WWWLoader
+    /// <summary>
+    /// ab加载器
+    /// 用法：1.Load
+    ///       2.用完之后手动调用Relase，当refCount为0时会Unload(true)来释放ab和内容
+    /// </summary>
     public class AssetBundleLoader : AbstractResourceLoader
     {
         public delegate void CAssetBundleLoaderDelegate(bool isOk, AssetBundle ab);
 
         public static Action<string> NewAssetBundleLoaderEvent;
-        public static Action<AssetBundleLoader> AssetBundlerLoaderErrorEvent;
-
+        #if UNITY_4
         private KWWWLoader _wwwLoader;
-        private KAssetBundleParser BundleParser;
-        //private bool UnloadAllAssets; // Dispose时赋值
+        #endif
+       
         public AssetBundle Bundle
         {
             get { return ResultObject as AssetBundle; }
@@ -66,16 +68,21 @@ namespace KEngine
         /// AssetBundle加载方式
         /// </summary>
         private LoaderMode _loaderMode;
-
+        
+        private float beginTime;
+        private string dependFrom = string.Empty;
         /// <summary>
-        /// AssetBundle读取原字节目录
+        /// 加载ab
         /// </summary>
-        //private KResourceInAppPathType _inAppPathType;
-
+        /// <param name="url">资源路径</param>
+        /// <param name="callback">加载完成的回调</param>
+        /// <param name="loaderMode">Async异步，sync同步</param>
+        /// <returns></returns>
         public static AssetBundleLoader Load(string url, CAssetBundleLoaderDelegate callback = null,
             LoaderMode loaderMode = LoaderMode.Async)
         {
-
+            if(!KResourceModule.IsEditorLoadAsset && !url.EndsWith(AppConfig.AssetBundleExt))
+                url = url + AppConfig.AssetBundleExt;
 #if UNITY_5 || UNITY_2017_1_OR_NEWER
             url = url.ToLower();
 #endif
@@ -86,7 +93,6 @@ namespace KEngine
             }
             var newLoader = AutoNew<AssetBundleLoader>(url, newCallback, false, loaderMode);
 
-
             return newLoader;
         }
 
@@ -96,39 +102,48 @@ namespace KEngine
         private static AssetBundleManifest _assetBundleManifest;
         /// <summary>
         /// Unity5下，使用manifest进行AssetBundle的加载
+        /// bool isForce,在热更新后，可能需要强制刷新AssetBundleManifest。
         /// </summary>
-        static void PreLoadManifest()
+        public static void PreLoadManifest(bool isForce = false)
         {
-            if (_hasPreloadAssetBundleManifest)
+            if (_hasPreloadAssetBundleManifest && isForce == false)
                 return;
 
             _hasPreloadAssetBundleManifest = true;
-            //            var mainAssetBundlePath = string.Format("{0}/{1}/{1}", KResourceModule.BundlesDirName,KResourceModule.BuildPlatformName);
-            HotBytesLoader bytesLoader = HotBytesLoader.Load(KResourceModule.BundlesPathRelative + KResourceModule.BuildPlatformName, LoaderMode.Sync);//string.Format("{0}/{1}", KResourceModule.BundlesDirName, KResourceModule.BuildPlatformName), LoaderMode.Sync);
-
-            _mainAssetBundle = AssetBundle.LoadFromMemory(bytesLoader.Bytes);//KResourceModule.LoadSyncFromStreamingAssets(mainAssetBundlePath));
+            //此方法不能加载到manifest文件
+            //var manifestPath = string.Format("{0}/{1}/{1}.manifest", KResourceModule.BundlesPathRelative,KResourceModule.BuildPlatformName);
+            // _mainAssetBundle = AssetBundle.LoadFromFile(manifestPath);
+            // _assetBundleManifest = _mainAssetBundle.LoadAsset<AssetBundleManifest>("AssetBundleManifest");
+            var manifestPath = KResourceModule.BundlesPathRelative + KResourceModule.GetBuildPlatformName();
+            KBytesLoader bytesLoader = KBytesLoader.Load(manifestPath, LoaderMode.Sync);
+            Debuger.Assert(bytesLoader!=null,$"load manifest byte error path:{manifestPath}");
+            _mainAssetBundle = AssetBundle.LoadFromMemory(bytesLoader.Bytes);
+            Debuger.Assert(_mainAssetBundle!=null,"load manifest ab error");
             _assetBundleManifest = _mainAssetBundle.LoadAsset("AssetBundleManifest") as AssetBundleManifest;
-
-            Debuger.Assert(_mainAssetBundle);
-            Debuger.Assert(_assetBundleManifest);
         }
 #endif
 
-        protected override void Init(string url, params object[] args)
+        public override void Init(string url, params object[] args)
         {
+#if UNITY_EDITOR
+            if (KResourceModule.IsEditorLoadAsset)
+            {
+                base.Init(url);
+                LoadInEditor(url);
+                return;
+            }
+#endif
 #if UNITY_5 || UNITY_2017_1_OR_NEWER
             PreLoadManifest();
 #endif
-
             base.Init(url);
-
             _loaderMode = (LoaderMode)args[0];
 
             if (NewAssetBundleLoaderEvent != null)
                 NewAssetBundleLoaderEvent(url);
 
             RelativeResourceUrl = url;
-            KResourceModule.LogRequest("AssetBundle", RelativeResourceUrl);
+            if(AppConfig.IsLogAbLoadCost) Log.Info("[Start] Load AssetBundle, {0}", RelativeResourceUrl);
             KResourceModule.Instance.StartCoroutine(LoadAssetBundle(url));
         }
 
@@ -150,6 +165,8 @@ namespace KEngine
             {
                 var dep = deps[d];
                 _depLoaders[d] = AssetBundleLoader.Load(dep, null, _loaderMode);
+                if(_depLoaders[d].dependFrom == string.Empty)
+                    _depLoaders[d].dependFrom = relativeUrl;
             }
             for (var l = 0; l < _depLoaders.Length; l++)
             {
@@ -165,72 +182,74 @@ namespace KEngine
             // Unity 5 AssetBundle自动转小写
             relativeUrl = relativeUrl.ToLower();
 #endif
-            var bytesLoader = HotBytesLoader.Load(KResourceModule.BundlesPathRelative + relativeUrl, _loaderMode);
-            while (!bytesLoader.IsCompleted)
+            if (AppConfig.IsLogAbLoadCost) beginTime = Time.realtimeSinceStartup;
+            
+            string _fullUrl =  KResourceModule.GetAbFullPath(relativeUrl);
+             
+            if (string.IsNullOrEmpty(_fullUrl))
             {
-                yield return null;
-            }
-            if (!bytesLoader.IsSuccess)
-            {
-                if (AssetBundlerLoaderErrorEvent != null)
-                {
-                    AssetBundlerLoaderErrorEvent(this);
-                }
-                Log.Error("[AssetBundleLoader]Error Load Bytes AssetBundle: {0}", relativeUrl);
                 OnFinish(null);
                 yield break;
             }
-
-            byte[] bundleBytes = bytesLoader.Bytes;
-            Progress = 1 / 2f;
-            bytesLoader.Release(); // 字节用完就释放
-
-            BundleParser = new KAssetBundleParser(RelativeResourceUrl, bundleBytes);
-            while (!BundleParser.IsFinished)
+      
+            AssetBundle assetBundle = null;
+            if (_loaderMode == LoaderMode.Sync)
             {
-                if (IsReadyDisposed) // 中途释放
-                {
-                    OnFinish(null);
-                    yield break;
-                }
-                Progress = BundleParser.Progress / 2f + 1 / 2f; // 最多50%， 要算上WWWLoader的嘛
-                yield return null;
+                assetBundle = AssetBundle.LoadFromFile(_fullUrl);
             }
-
-            Progress = 1f;
-            var assetBundle = BundleParser.Bundle;
+            else
+            {
+                var request = AssetBundle.LoadFromFileAsync(_fullUrl);
+                while (!request.isDone)
+                {
+                    if (IsReadyDisposed) // 中途释放
+                    {
+                        OnFinish(null);
+                        yield break;
+                    }
+                    Progress = request.progress;
+                    yield return null;
+                }
+                assetBundle = request.assetBundle;
+            }
             if (assetBundle == null)
-                Log.Error("WWW.assetBundle is NULL: {0}", RelativeResourceUrl);
-
+                Log.Error("assetBundle is NULL: {0}", RelativeResourceUrl);
+            if (AppConfig.IsLogAbLoadCost) Log.Info("[Finish] Load AssetBundle {0}, CostTime {1}s {2}", relativeUrl, Time.realtimeSinceStartup - beginTime,dependFrom);
+            if (AppConfig.IsSaveCostToFile && !relativeUrl.StartsWith("ui/"))  LogFileManager.WriteLoadAbLog(relativeUrl, Time.realtimeSinceStartup - beginTime);
             OnFinish(assetBundle);
-
-            //Array.Clear(cloneBytes, 0, cloneBytes.Length);  // 手工释放内存
-
-            //GC.Collect(0);// 手工释放内存
         }
 
         protected override void OnFinish(object resultObj)
         {
+            #if UNITY_4
             if (_wwwLoader != null)
             {
                 // 释放WWW加载的字节。。释放该部分内存，因为AssetBundle已经自己有缓存了
                 _wwwLoader.Release();
                 _wwwLoader = null;
             }
+            #endif
             base.OnFinish(resultObj);
         }
 
         protected override void DoDispose()
         {
             base.DoDispose();
-
-            if (BundleParser != null)
-                BundleParser.Dispose(false);
-#if UNITY_5 || UNITY_2017_1_OR_NEWER
-            foreach (var depLoader in _depLoaders)
+            if (Bundle != null && RefCount<=0)
             {
-                depLoader.Release();
+                Bundle.Unload(true);
             }
+#if UNITY_5 || UNITY_2017_1_OR_NEWER
+            if (_depLoaders != null && _depLoaders.Length > 0)
+            {
+                foreach (var depLoader in _depLoaders)
+                {
+                    if (depLoader.Bundle != null && depLoader.RefCount<=0) 
+                        depLoader.Bundle.Unload(true);
+                    depLoader.Release();
+                }
+            }
+
             _depLoaders = null;
 #endif
 
@@ -248,10 +267,9 @@ namespace KEngine
         {
             if (Application.isEditor)
             {
-                if (Url.Contains("Arial"))
+                if (Url != null && Url.Contains("Arial"))
                 {
                     Log.Error("要释放Arial字体！！错啦！！builtinextra:{0}", Url);
-                    //UnityEditor.EditorApplication.isPaused = true;
                 }
             }
 
@@ -266,6 +284,18 @@ namespace KEngine
             if (_loadedAssets == null)
                 _loadedAssets = new List<Object>();
             _loadedAssets.Add(getAsset);
+        }
+
+        private void LoadInEditor(string path)
+        {
+#if UNITY_EDITOR
+            Object getAsset = UnityEditor.AssetDatabase.LoadAssetAtPath("Assets/" + KEngineDef.ResourcesBuildDir + "/" + path + ".prefab", typeof(UnityEngine.Object));
+           if (getAsset == null)
+           {
+               Log.Error("Asset is NULL(from {0} Folder): {1}", KEngineDef.ResourcesBuildDir, path);
+           }
+           OnFinish(getAsset);
+#endif
         }
     }
 

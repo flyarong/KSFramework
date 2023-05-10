@@ -24,24 +24,18 @@
 
 #endregion
 
-#if UNITY_5 || UNITY_2017_1_OR_NEWER || UNITY_4 || UNITY_3
-#define UNITY
-#endif
-
 using System;
 
 namespace KEngine
 {
+    /// <summary>
+    /// 对UnityEngine.Debug.Assert的扩展
+    /// </summary>
     public class Debuger
     {
-
         /// <summary>
-        /// Check if a object null
+        /// Check if a object null，条件不满足打印Error，不会中断当前调用
         /// </summary>
-        /// <param name="obj"></param>
-        /// <param name="formatStr"></param>
-        /// <param name="args"></param>
-        /// <returns></returns>
         public static bool Check(object obj, string formatStr = null, params object[] args)
         {
             if (obj != null) return true;
@@ -52,26 +46,53 @@ namespace KEngine
             Log.Error("[!!!]" + formatStr, args);
             return false;
         }
+        
+        /// <summary>
+        /// 条件不满足打印Error，不会中断当前调用
+        /// </summary>
+        public static bool Check(bool result, string formatStr = null, params object[] args)
+        {
+            if (result) return true;
 
+            if (string.IsNullOrEmpty(formatStr))
+                formatStr = "Check Failed!";
+
+            Log.Error("[!!!]" + formatStr, args);
+            return false;
+        }
+        
+        /// <summary>
+        /// 条件不满足会中断当前调用
+        /// </summary>
         public static void Assert(bool result)
         {
             Assert(result, null);
         }
-
+        
+        /// <summary>
+        /// 条件不满足会中断当前调用
+        /// </summary>
+        /// <param name="msg">出错时的error日志</param>
         public static void Assert(bool result, string msg, params object[] args)
         {
             if (!result)
             {
-                string formatMsg = "Assert Failed! ";
+                string formatMsg = $"[Error]{DateTime.Now.ToString("HH:mm:ss.fff")} Assert Failed! ";
                 if (!string.IsNullOrEmpty(msg))
-                    formatMsg += string.Format(msg, args);
+                {
+                    if (args != null && args.Length > 0)
+                        msg = string.Format(msg, args);
+                    formatMsg += msg;
+                }
 
-                Log.LogErrorWithStack(formatMsg, 2);
-
+                //Log.LogErrorWithStack(formatMsg, 2); //Exception会打印error，这里不再打印error
                 throw new Exception(formatMsg); // 中断当前调用
             }
         }
-
+        
+        /// <summary>
+        /// 当前值是否!=0
+        /// </summary>
         public static void Assert(int result)
         {
             Assert(result != 0);
@@ -81,63 +102,15 @@ namespace KEngine
         {
             Assert(result != 0);
         }
-
+        
+        /// <summary>
+        /// 检查参数是否为null，条件不满足会中断当前调用
+        /// </summary>
         public static void Assert(object obj)
         {
             Assert(obj != null);
         }
 
-        #region Record Time
-
-#if UNITY
-        private static float[] RecordTime = new float[10];
-        private static string[] RecordKey = new string[10];
-        private static int RecordPos = 0;
-
-        public static void BeginRecordTime(string key)
-        {
-            RecordTime[RecordPos] = UnityEngine.Time.realtimeSinceStartup;
-            RecordKey[RecordPos] = key;
-            RecordPos++;
-        }
-
-        public static string EndRecordTime(bool printLog = true)
-        {
-            RecordPos--;
-            double s = (UnityEngine.Time.realtimeSinceStartup - RecordTime[RecordPos]);
-            if (printLog)
-            {
-                Log.Info("[RecordTime] {0} use {1}s", RecordKey[RecordPos], s);
-            }
-            return string.Format("[RecordTime] {0} use {1}s.", RecordKey[RecordPos], s);
-        }
-#endif
-
-        // 添加性能观察, 使用C#内置
-        public static void WatchPerformance(Action del)
-        {
-            WatchPerformance("执行耗费时间: {0}s", del);
-        }
-
-        public static void WatchPerformance(string outputStr, Action del)
-        {
-            System.Diagnostics.Stopwatch stopwatch = new System.Diagnostics.Stopwatch();
-            stopwatch.Start(); //  开始监视代码运行时间
-
-            if (del != null)
-            {
-                del();
-            }
-
-            stopwatch.Stop(); //  停止监视
-            TimeSpan timespan = stopwatch.Elapsed; //  获取当前实例测量得出的总时间
-            //double seconds = timespan.TotalSeconds;  //  总秒数
-            double millseconds = timespan.TotalMilliseconds;
-            decimal seconds = (decimal)millseconds / 1000m;
-
-            Log.Warning(outputStr, seconds.ToString("F7")); // 7位精度
-        }
-
-        #endregion
+       
     }
 }

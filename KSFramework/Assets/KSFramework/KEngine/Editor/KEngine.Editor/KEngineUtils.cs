@@ -39,22 +39,6 @@ namespace KEngine.Editor
         {
         }
 
-        //private static string ConfFilePath = "Assets/Resources/KEngineConfig.txt";
-
-        // 默認的配置文件內容
-        //private static string[][] DefaultConfigs = new string[][]
-        //{
-        //    new string[] {"ProductRelPath", "../Product", ""},
-        //    new string[] {"AssetBundleBuildRelPath", "../Product/Bundles", "The Relative path to build assetbundles"},
-        //    new [] {"StreamingBundlesFolderName", "Bundles"},
-        //    new [] {"UIModuleBridge","UGUI"},
-        //    new string[] {"AssetBundleExt", ".bytes", "Asset bundle file extension"},
-        //    new string[] {"IsLoadAssetBundle", "1", "Asset bundle or in resources?"},
-        //    new [] {"SettingSourcePath", "../Product/SettingSource"},
-        //    new [] {"SettingPath", "Resources/Setting"},
-
-        //};
-
         private static KEngineUtils Instance;
 
 
@@ -108,7 +92,7 @@ namespace KEngine.Editor
 
             EditorGUILayout.Space();
 
-            EditorGUILayout.LabelField("== Addon ==");
+            /*EditorGUILayout.LabelField("== Addon ==");
             var isNgui = KDefineSymbolsHelper.HasDefineSymbol("NGUI");
             var newIsNgui = EditorGUILayout.Toggle("NGUI", isNgui);
             if (isNgui != newIsNgui)
@@ -121,35 +105,35 @@ namespace KEngine.Editor
                 {
                     KDefineSymbolsHelper.RemoveDefineSymbols("NGUI");
                 }
-            }
+            }*/
 
-            EditorGUILayout.LabelField("== AppConfigs.txt ==");
-            //bool tabDirty = false;
-            var configs = AppEngine.PreloadConfigs();
-            foreach (var sectionData in configs.GetSections())
+            EditorGUILayout.LabelField("== Please Modify AppConfigs.cs ==");
+            /*bool tabDirty = false;
+             var configs = AppEngine.PreloadConfigs();
+             foreach (var sectionData in configs.GetSections())
+             {
+                 EditorGUILayout.Space();
+                 EditorGUILayout.LabelField("[" + sectionData.SectionName + "]");
+            
+                 foreach (var key in sectionData.Keys)
+                 {
+                     string value = key.Value;
+                     EditorGUILayout.BeginHorizontal();
+                     EditorGUILayout.LabelField(key.KeyName);
+                     EditorGUILayout.LabelField(value);
+                     EditorGUILayout.EndHorizontal();
+                     //string newValue = EditorGUILayout.TextField(key.KeyName, value);
+                     //if (value != newValue)
+                     //{
+                     //    tabDirty = true;
+                     //}
+                 }
+             }
+
+            if (tabDirty)
             {
-                EditorGUILayout.Space();
-                EditorGUILayout.LabelField("[" + sectionData.SectionName + "]");
-
-                foreach (var key in sectionData.Keys)
-                {
-                    string value = key.Value;
-                    EditorGUILayout.BeginHorizontal();
-                    EditorGUILayout.LabelField(key.KeyName);
-                    EditorGUILayout.LabelField(value);
-                    EditorGUILayout.EndHorizontal();
-                    //string newValue = EditorGUILayout.TextField(key.KeyName, value);
-                    //if (value != newValue)
-                    //{
-                    //    tabDirty = true;
-                    //}
-                }
-            }
-
-            //if (tabDirty)
-            //{
-            //    AssetDatabase.Refresh();
-            //}
+                AssetDatabase.Refresh();
+            }*/
 
         }
     }

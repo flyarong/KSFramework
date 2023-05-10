@@ -1,9 +1,11 @@
 ﻿using UnityEngine;
-using System.Collections;
+using System.Diagnostics;
 using System.IO;
 using KEngine;
 using KEngine.UI;
+using KUnityEditorTools;
 using UnityEditor;
+using Debug = UnityEngine.Debug;
 #if UNITY_5 || UNITY_2017_1_OR_NEWER
 using UnityEditor.SceneManagement;
 #endif
@@ -46,8 +48,8 @@ Shorcuts:
             EditorGUILayout.LabelField("Reload AppConfigs.txt");
             if (GUILayout.Button("Reload"))
             {
-                AppEngine.PreloadConfigs(true);
-                Debug.Log("Reload AppConfigs.txt!");
+                //AppEngine.PreloadConfigs(true); 
+                Debug.Log("TODO 运行时重载AppConfig");
             }
             EditorGUILayout.EndHorizontal();
         }
@@ -66,7 +68,6 @@ Shorcuts:
 #else
                 EditorApplication.OpenScene(lastScene);
 #endif
-
             }
             else
             {
@@ -93,21 +94,18 @@ Shorcuts:
             EditorApplication.OpenScene(mainScene);
 #endif
         }
-
+#if xLua || SLUA
+        
         [MenuItem("KEngine/UI(UGUI)/Auto Make UI Lua Scripts(Current Scene)")]
         public static void AutoMakeUILuaScripts()
         {
-            var luaPath = AppEngine.GetConfig("KSFramework.Lua", "LuaPath");
-            Debug.Log("Find UI from current scenes, LuaScriptPath: " + luaPath);
-
             var windowAssets = GameObject.FindObjectsOfType<UIWindowAsset>();
             if (windowAssets.Length > 0)
             {
                 foreach (var windowAsset in windowAssets)
                 {
                     var uiName = windowAsset.name;
-                    var scriptPath = string.Format("{0}/{1}/UI/{2}/{3}.lua", KResourceModule.EditorProductFullPath,
-                        luaPath, uiName,uiName);
+                    var scriptPath = $"{KResourceModule.EditorProductFullPath}/{AppConfig.LuaPath}/UI/{uiName}/{uiName}.lua";
                     if (!File.Exists(scriptPath))
                     {
                         var scriptDir = Path.GetDirectoryName(scriptPath);
@@ -115,8 +113,8 @@ Shorcuts:
                         {
                             Directory.CreateDirectory(scriptDir);
                         }
-
-                        File.WriteAllText(scriptPath, LuaUITempalteCode.Replace("$UI_NAME", "UI" + uiName));
+                        
+                        File.WriteAllText(scriptPath, LuaUITempalteCode.Replace("$UI_NAME",  uiName));
                         Debug.Log("New Lua Script: " + scriptPath);
                     }
                     else
@@ -187,8 +185,9 @@ end
 return $UI_NAME
 ";
 #endif
+        
         [MenuItem("KEngine/UI(UGUI)/Reload UI Lua %&r")]
-        public static void ReloadLuaCache()
+        public static void ReloadAllUIScript()
         {
             if (!EditorApplication.isPlaying)
             {
@@ -197,52 +196,40 @@ return $UI_NAME
             }
             foreach (var kv in UIModule.Instance.UIWindows)
             {
-                var luaController = kv.Value.UIWindow as LuaUIController;
-                if (luaController) // 只处理LuaUIController
+                ReloadUIScript(kv.Key);
+            }
+        }
+        
+        public static void ReloadUIScript(string uiName)
+        {
+            if (!EditorApplication.isPlaying)
+            {
+                Log.LogError("Reload UI only when your editor is playing!");
+                return;
+            }
+            UILoadState state = null;
+            if (UIModule.Instance.UIWindows.TryGetValue(uiName, out state))
+            {
+                var luaController = state.UIWindow as LuaUIController;
+                if (luaController!=null)
                 {
-                    luaController.ClearLuaTableCache();
+                    luaController.ClearLuaTableCache(true);
+                    luaController.OnInit();
                     luaController.OnOpen(luaController.LastOnOpenArgs);
-                    Log.LogWarning("Reload Lua - {0}", kv.Key);
                 }
             }
-        }
-
-        [MenuItem("KEngine/UI(UGUI)/Reload Lua + Reload UI AssetBundle")]
-        public static void ReloadUI()
-        {
-            if (!EditorApplication.isPlaying)
+            else
             {
-                Log.LogError("Reload UI only when your editor is playing!");
-                return;
+                Log.Info("UI:{0} 未打开过，无需处理",uiName);
             }
-            foreach (var kv in UIModule.Instance.UIWindows)
-            {
-                var luaController = kv.Value.UIWindow as LuaUIController;
-                if (luaController) // 只处理LuaUIController
-                {
-                    var inOpenState = UIModule.Instance.IsOpen(kv.Key);
-                    if (inOpenState)
-                        UIModule.Instance.CloseWindow(kv.Key);
-
-                    luaController.ClearLuaTableCache();
-                    Log.LogWarning("Reload Lua - {0}", kv.Key);
-
-                    UIModule.Instance.ReloadWindow(kv.Key, (args, err) =>
-                    {
-                        if (inOpenState)
-                            UIModule.Instance.OpenWindow(kv.Key, luaController.LastOnOpenArgs);
-                    });
-
-                }
-            }
-            
         }
+        
         /// <summary>
-        /// 找到所有的LuaUIController被进行Reload
+        /// 找到所有的LuaUIController进行Reload
         /// 如果Reload时，UI正在打开，将对其进行关闭，并再次打开，来立刻看到效果
         /// </summary>
         [MenuItem("KEngine/UI(UGUI)/Reload Lua + ReOpen UI #%&r")]
-        public static void ReloadUILua()
+        public static void ReloadAllUI()
         {
             if (!EditorApplication.isPlaying)
             {
@@ -251,20 +238,122 @@ return $UI_NAME
             }
             foreach (var kv in UIModule.Instance.UIWindows)
             {
-                var luaController = kv.Value.UIWindow as LuaUIController;
-                if (luaController) // 只处理LuaUIController
-                {
-                    var inOpenState = UIModule.Instance.IsOpen(kv.Key);
-                    if (inOpenState)
-                        UIModule.Instance.CloseWindow(kv.Key);
-
-                    luaController.ClearLuaTableCache();
-                    Log.LogWarning("Reload Lua - {0}", kv.Key);
-
-                    if (inOpenState)
-                        UIModule.Instance.OpenWindow(kv.Key, luaController.LastOnOpenArgs);
-                }
+                ReloadUI(kv.Key);
             }
+        }
+
+        public static void ReloadUI(string uiName)
+        {
+            if (!EditorApplication.isPlaying)
+            {
+                Log.LogError("Reload UI only when your editor is playing!");
+                return;
+            }
+
+            UILoadState state;
+            if (UIModule.Instance.UIWindows.TryGetValue(uiName, out state))
+            {
+                ReloadUIAB(uiName);
+                ReloadUIScript(uiName);
+            }
+            else
+            {
+                Log.Info("UI:{0} 未打开过，无需处理",uiName);
+            }
+        }
+#endif     
+        [MenuItem("KEngine/UI(UGUI)/Reload Lua + Reload UI AssetBundle")]
+        public static void ReloadAllUIAB()
+        {
+            if (!EditorApplication.isPlaying)
+            {
+                Log.LogError("Reload UI only when your editor is playing!");
+                return;
+            }
+            foreach (var kv in UIModule.Instance.UIWindows)
+            {
+                ReloadUIAB(kv.Key);
+            }
+            
+        }
+
+        public static void ReloadUIAB(string uiName)
+        {
+            if (!EditorApplication.isPlaying)
+            {
+                Log.LogError("Reload UI only when your editor is playing!");
+                return;
+            }
+
+            UILoadState state = null;
+            if (UIModule.Instance.UIWindows.TryGetValue(uiName, out state))
+            {
+                var inOpenState = UIModule.Instance.IsOpen(uiName);
+                if (inOpenState)
+                    UIModule.Instance.CloseWindow(uiName);
+#if xLua || SLUA
+                var luaController = state.UIWindow as LuaUIController;
+                if (luaController != null)
+                {
+                    luaController.ClearLuaTableCache(true);
+                }
+                UIModule.Instance.ReloadWindow(uiName, (args, err) =>
+                {
+                    if (inOpenState)
+                        UIModule.Instance.OpenWindow(uiName, luaController.LastOnOpenArgs);
+                });
+#elif ILRuntime
+                UIModule.Instance.ReloadWindow(uiName, (args, err) =>
+                {
+                    if (inOpenState)
+                        UIModule.Instance.OpenWindow(uiName, (state.UIWindow as ILRuntimeUIBase)?.LastOnOpenArgs);
+                });
+#endif
+
+            }
+            else
+            {
+                Log.Info("UI:{0} 未打开过，无需处理",uiName);
+            }
+        }
+        
+        /// <summary>
+        /// 提供一个独立的gui工具编译excel
+        /// </summary>
+        [MenuItem("KEngine/Get Or Open Tableml GUI (gui compile excel)")]
+        public static void GetTablemlGUI()
+        {
+            var path = Path.GetFullPath(Application.dataPath +"./../Product/Tableml_GUI/TableMLGUI.exe");
+            if (File.Exists(path))
+            {
+                Process.Start(path);
+            }
+            else
+            {
+                //下载tablemlgui,然后放在.\Product\目录下
+                Application.OpenURL("https://github.com/zhaoqingqing/TableML/releases");
+            }
+        }
+        
+        /// <summary>
+        /// unity editor引擎写入的日志
+        /// </summary>
+        [MenuItem("KEngine/Open Unity Editor Log")]
+        public static void OpenEditorLog()
+        {
+            //windows10下editor log目录在：@"%USERPROFILE%\AppData\Local\Unity\Editor\"
+            var dir = System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData) + @"\Unity\Editor";
+            System.Diagnostics.Process.Start(dir);
+            //if mac os see:https://answers.unity.com/questions/1484445/how-do-i-find-the-player-log-file-from-code.html
+        }
+        
+        /// <summary>
+        /// 自己写入的日志
+        /// </summary>
+        [MenuItem("KEngine/Open Custom Log")]
+        public static void OpenCustomLog()
+        {
+            System.Diagnostics.Process.Start(Path.GetDirectoryName(LogFileManager.GetLogFilePath()));
         }
     }
 }

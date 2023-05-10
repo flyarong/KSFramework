@@ -2,12 +2,11 @@
 using System.IO;
 using KEngine;
 using KSFramework;
-using UnityEngine;
-using UnityEditor;
 using NUnit.Framework;
 
 public class KSFrameworkTests
 {
+#if xLua || SLUA
     private static LuaModule _testLuaModule;
     public static LuaModule GetLuaModule()
     {
@@ -37,5 +36,6 @@ public class KSFrameworkTests
         }
 
 	}
+#endif
 }
 #endif

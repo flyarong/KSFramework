@@ -27,6 +27,7 @@ using System;
 using UnityEngine;
 using System.IO;
 using KEngine;
+using KUnityEditorTools;
 using UnityEditor;
 using UnityEditor.Callbacks;
 
@@ -35,6 +36,7 @@ namespace KSFramework.Editor
     /// <summary>
     /// Build App阶段，进行处理的钩子
     /// </summary>
+    [InitializeOnLoad]
     public class SettingModuleBuildHandler
     {
         /// <summary>
@@ -47,35 +49,41 @@ namespace KSFramework.Editor
         /// </summary>
         public static Action<string> OnCopyFile;
 
+        static SettingModuleBuildHandler()
+        {
+            //目前是通过link方式，且没有加密配置表，所以不copy
+            // KUnityEditorEventCatcher.OnBeforeBuildAppEvent -= OnPostProcessScene; 
+            // KUnityEditorEventCatcher.OnBeforeBuildAppEvent += OnPostProcessScene;
+        }
+
         /// <summary>
         /// 完成Scene后，编译DLL后，未出APK前
         /// </summary>
-        [PostProcessScene]
+        //[PostProcessScene]
         private static void OnPostProcessScene()
         {
             if (!_hasBeforeBuildApp && !EditorApplication.isPlayingOrWillChangePlaymode)
             {
                 _hasBeforeBuildApp = true;
                 // 这里是编译前, Setting目录的配置文件拷贝进去StreamingAssetse
-                var editorLuaScriptPath = AppEngine.GetConfig("KEngine.Setting", "SettingCompiledPath");
-                if (Directory.Exists(editorLuaScriptPath) == false)
+                
+                if (Directory.Exists(AppConfig.ExportTsvPath) == false)
                 {
-                    Debug.LogWarning(string.Format("[SettingModuleBuildHandler]DirectoryNotFound: {0}", editorLuaScriptPath));
+                    Debug.LogWarning(string.Format("[SettingModuleBuildHandler]DirectoryNotFound: {0}", AppConfig.ExportTsvPath));
                     return;
                 }
-                //var ext = AppEngine.GetConfig("KEngine", "AssetBundleExt");
                 Debug.Log("[SettingModuleBuildHandler]Start copy settings...");
                 var luaCount = 0;
-                //var editorLuaScriptPath = Path.Combine(KResourceModule.EditorProductFullPath, compilePath);
-                editorLuaScriptPath = editorLuaScriptPath.Replace("\\", "/");
-                var toDir = "Assets/StreamingAssets/" + AppEngine.GetConfig("KEngine.Setting", "SettingResourcesPath"); // 文件夹名称获取
 
-                // 所有的Lua脚本拷贝到StreamingAssets
-                foreach (var path in Directory.GetFiles(editorLuaScriptPath, "*", SearchOption.AllDirectories))
+                var toDir = "Assets/StreamingAssets/" + AppConfig.SettingResourcesPath; // 文件夹名称获取
+
+                //拷贝所有的tsv到StreamingAssets
+                var allFiles = Directory.GetFiles(AppConfig.ExportTsvPath, "*", SearchOption.AllDirectories);
+                foreach (var path in allFiles)
                 {
                     var cleanPath = path.Replace("\\", "/");
 
-                    var relativePath = cleanPath.Replace(editorLuaScriptPath + "/", "");
+                    var relativePath = cleanPath.Replace(AppConfig.ExportTsvPath + "/", "");
                     var toPath = Path.Combine(toDir, relativePath);
 
                     if (!Directory.Exists(Path.GetDirectoryName(toPath)))

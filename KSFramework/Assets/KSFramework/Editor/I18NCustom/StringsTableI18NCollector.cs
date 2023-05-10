@@ -22,11 +22,8 @@
 // License along with this library.
 
 #endregion
-using System;
-using System.Collections.Generic;
+
 using System.IO;
-using System.Linq;
-using System.Text;
 using KEngine;
 using UnityEngine;
 using TableML;
@@ -49,9 +46,7 @@ namespace KSFramework.Editor
         /// <param name="refItems"></param>
         static void CollectStringsTable(ref I18NItems refItems)
         {
-            var compilePath = AppEngine.GetConfig("KEngine.Setting", "SettingCompiledPath");
-            var ext = AppEngine.GetConfig("KEngine", "AssetBundleExt");
-            var stringsTablePath = string.Format("{0}/StringsTable{1}", compilePath, ext);
+            var stringsTablePath = string.Format("{0}/StringsTable{1}", AppConfig.ExportTsvPath, AppConfig.AssetBundleExt);
             if (!File.Exists(stringsTablePath))
                 return;
 

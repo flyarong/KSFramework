@@ -38,19 +38,6 @@ namespace KEngine.Modules
     /// </summary>
     public class SettingModule : SettingModuleBase
     {
-        public delegate byte[] LoadSettingFuncDelegate(string filePath);
-        public delegate byte[] SettingBytesFilterDelegate(byte[] bytes);
-
-        /// <summary>
-        /// Filter the loaded bytes, which settings file may be encrypted, so you can manipulate the bytes
-        /// </summary>
-        public static SettingBytesFilterDelegate SettingBytesFilter;
-
-        /// <summary>
-        /// Override the default load file strategy
-        /// </summary>
-        public static LoadSettingFuncDelegate CustomLoadSetting;
-
         private static readonly bool IsEditor;
         static SettingModule()
         {
@@ -63,18 +50,8 @@ namespace KEngine.Modules
         internal SettingModule()
         {
         }
-
-        /// <summary>
-        /// Load KEngineConfig.txt 's `SettingPath`
-        /// </summary>
-        protected static string SettingFolderName
-        {
-            get
-            {
-                return AppEngine.GetConfig("KEngine.Setting", "SettingResourcesPath");
-            }
-        }
-
+        
+        
         /// <summary>
         /// Singleton
         /// </summary>
@@ -100,44 +77,18 @@ namespace KEngine.Modules
         /// <returns></returns>
         protected override string LoadSetting(string path)
         {
-            byte[] fileContent = CustomLoadSetting != null ? CustomLoadSetting(path) : DefaultLoadSetting(path);
+            byte[] fileContent = KResourceModule.LoadAssetsSync(GetSettingFilePath(path));
             return Encoding.UTF8.GetString(fileContent);
         }
-
+        
         /// <summary>
-        /// Default load setting strategry,  editor load file, runtime resources.load
+        /// 获取配置表的路径，都在Settings目录下
         /// </summary>
         /// <param name="path"></param>
         /// <returns></returns>
-        public static byte[] DefaultLoadSetting(string path)
+        public static string GetSettingFilePath(string path)
         {
-            //NOTE 在Editor下Reload 配置表失败
-#if UNITY_EDITOR
-            return LoadSettingFromFile(path);
-#else
-            byte[] fileContent;
-            var loader = HotBytesLoader.Load(SettingFolderName + "/" + path, LoaderMode.Sync);
-            Debuger.Assert(!loader.IsError);
-            fileContent = loader.Bytes;
-            
-            loader.Release();
-            return fileContent;
-#endif
-        }
-
-        private static byte[] LoadSettingFromFile(string path)
-        {
-            var resPath = GetFileSystemPath(path);
-            var bytes = File.ReadAllBytes(resPath);
-            bytes = SettingBytesFilter != null ? SettingBytesFilter(bytes) : bytes;
-            return bytes;
-        }
-
-        private static string GetFileSystemPath(string path)
-        {
-            var compilePath = AppEngine.GetConfig("KEngine.Setting", "SettingCompiledPath");
-            var resPath = Path.Combine(compilePath, path);
-            return resPath;
+            return AppConfig.SettingResourcesPath + "/" + path;
         }
 
 #if UNITY_EDITOR
@@ -161,9 +112,9 @@ namespace KEngine.Modules
             if (_cacheWatchers == null)
                 _cacheWatchers = new Dictionary<string, FileSystemWatcher>();
             FileSystemWatcher watcher;
-            var dirPath = Path.GetDirectoryName(GetFileSystemPath(path));
+            var dirPath = Path.GetDirectoryName(KResourceModule.EditorProductFullPath + "/" + AppConfig.SettingResourcesPath + "/" + path);
             dirPath = dirPath.Replace("\\", "/");
-
+            //if(Application.isEditor) Log.Info($"watch:{path}\n{dirPath}");
             if (!Directory.Exists(dirPath))
             {
                 Log.Error("[WatchSetting] Not found Dir: {0}", dirPath);
@@ -188,32 +139,6 @@ namespace KEngine.Modules
             };
         }
 #endif
-        /// <summary>
-        /// Load from unity Resources folder
-        /// </summary>
-        /// <param name="path"></param>
-        /// <returns></returns>
-        [Obsolete("LoadSettingFromStreamingAssets instead!")]
-        private static byte[] LoadSettingFromResources(string path)
-        {
-            var resPath = SettingFolderName + "/" + Path.ChangeExtension(path, null);
-            var fileContentAsset = Resources.Load(resPath) as TextAsset;
-            var bytes = SettingBytesFilter != null ? SettingBytesFilter(fileContentAsset.bytes) : fileContentAsset.bytes;
-            return bytes;
-        }
-		
-        /// <summary>
-        /// KEngine 3 后，增加同步loadStreamingAssets文件，统一只用StreamingAsset路径
-        /// </summary>
-        /// <param name="path"></param>
-        /// <returns></returns>
-        private static byte[] LoadSettingFromStreamingAssets(string path)
-        {
-            var resPath = SettingFolderName + "/" + path;
-            var bytes = KResourceModule.LoadSyncFromStreamingAssets(resPath);
-            bytes = SettingBytesFilter != null ? SettingBytesFilter(bytes) : bytes;
-            return bytes;
-        }
 
         /// <summary>
         /// whether or not using file system file, in unity editor mode only

@@ -32,6 +32,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using UnityEditor;
+using UnityEngine;
 using Debug = UnityEngine.Debug;
 
 namespace KUnityEditorTools
@@ -84,73 +85,7 @@ namespace KUnityEditorTools
             MethodInfo method = type.GetMethod("Clear");
             method.Invoke(new object(), null);
         }
-
-        /// <summary>
-        /// 执行批处理命令
-        /// </summary>
-        /// <param name="command"></param>
-        /// <param name="workingDirectory"></param>
-        public static void ExecuteCommand(string command, string workingDirectory = null)
-        {
-            var fProgress = .1f;
-            EditorUtility.DisplayProgressBar("KEditorUtils.ExecuteCommand", command, fProgress);
-
-            try
-            {
-                string cmd;
-                string preArg;
-                var os = Environment.OSVersion;
-
-                Debug.Log(String.Format("[ExecuteCommand]Command on OS: {0}", os.ToString()));
-                if (os.ToString().Contains("Windows"))
-                {
-                    cmd = "cmd.exe";
-                    preArg = "/C ";
-                }
-                else
-                {
-                    cmd = "sh";
-                    preArg = "-c ";
-                }
-                Debug.Log("[ExecuteCommand]" + command);
-                var allOutput = new StringBuilder();
-                using (var process = new Process())
-                {
-                    if (workingDirectory != null)
-                        process.StartInfo.WorkingDirectory = workingDirectory;
-                    process.StartInfo.FileName = cmd;
-                    process.StartInfo.Arguments = preArg + "\"" + command + "\"";
-                    process.StartInfo.UseShellExecute = false;
-                    process.StartInfo.CreateNoWindow = true;
-                    process.StartInfo.RedirectStandardOutput = true;
-                    process.StartInfo.RedirectStandardError = true;
-                    process.Start();
-
-                    while (true)
-                    {
-                        var line = process.StandardOutput.ReadLine();
-                        if (line == null)
-                            break;
-                        allOutput.AppendLine(line);
-                        EditorUtility.DisplayProgressBar("[ExecuteCommand] " + command, line, fProgress);
-                        fProgress += .001f;
-                    }
-
-                    var err = process.StandardError.ReadToEnd();
-                    if (!String.IsNullOrEmpty(err))
-                    {
-                        Debug.LogError(String.Format("[ExecuteCommand] {0}", err));
-                    }
-                    process.WaitForExit();
-                }
-                Debug.Log("[ExecuteResult]" + allOutput);
-            }
-            finally
-            {
-                EditorUtility.ClearProgressBar();
-            }
-        }
-
+        
         public delegate void EachDirectoryDelegate(string fileFullPath, string fileRelativePath);
 
         /// <summary>
@@ -181,9 +116,19 @@ namespace KUnityEditorTools
         {
             return path.Replace("\\", "/");
         }
-
+        
         /// <summary>
-        /// 在指定目录中搜寻字符串并返回匹配}
+        /// 获取相对于Assets的路径，并将路径分隔符从\转换为/
+        /// </summary>
+        /// <param name="path"></param>
+        /// <returns></returns>
+        public static  string GetRelativeAssetsPath(string path)
+        {
+            return "Assets" + Path.GetFullPath(path).Replace(Path.GetFullPath(Application.dataPath), "").Replace('\\', '/');
+        }
+        
+        /// <summary>
+        /// 在指定目录中搜寻字符串并返回匹配
         /// </summary>
         /// <param name="sourceFolder"></param>
         /// <param name="searchWord"></param>

@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
-using System.Text;
 //using DG.Tweening;
 using KEngine;
 using KEngine.UI;
@@ -18,52 +16,6 @@ using XLua;
 /// </summary>
 public static class XLuaCustomExport
 {
-    /// <summary>
-    /// dotween的扩展方法在lua中调用
-    /// </summary>
-	  /*
-	[LuaCallCSharp]
-    [ReflectionUse]
-    public static List<Type> dotween_lua_call_cs_list = new List<Type>()
-    {
-        typeof(DG.Tweening.AutoPlay),
-        typeof(DG.Tweening.AxisConstraint),
-        typeof(DG.Tweening.Ease),
-        typeof(DG.Tweening.LogBehaviour),
-        typeof(DG.Tweening.LoopType),
-        typeof(DG.Tweening.PathMode),
-        typeof(DG.Tweening.PathType),
-        typeof(DG.Tweening.RotateMode),
-        typeof(DG.Tweening.ScrambleMode),
-        typeof(DG.Tweening.TweenType),
-        typeof(DG.Tweening.UpdateType),
-
-        typeof(DG.Tweening.DOTween),
-        typeof(DG.Tweening.DOVirtual),
-        typeof(DG.Tweening.EaseFactory),
-        typeof(DG.Tweening.Tweener),
-        typeof(DG.Tweening.Tween),
-        typeof(DG.Tweening.Sequence),
-        typeof(DG.Tweening.TweenParams),
-        typeof(DG.Tweening.Core.ABSSequentiable),
-
-        typeof(DG.Tweening.Core.TweenerCore<Vector3, Vector3, DG.Tweening.Plugins.Options.VectorOptions>),
-
-        typeof(DG.Tweening.TweenCallback),
-        typeof(DG.Tweening.TweenExtensions),
-        typeof(DG.Tweening.TweenSettingsExtensions),
-        typeof(DG.Tweening.ShortcutExtensions),
-        typeof(DG.Tweening.ShortcutExtensions43),
-        typeof(DG.Tweening.ShortcutExtensions46),
-        typeof(DG.Tweening.ShortcutExtensions50),
-       
-        //在生成xlua的代码时以下会报错
-        //typeof(DG.Tweening.DOTweenPath),
-        //typeof(DG.Tweening.DOTweenVisualManager),
-    }
-	**/
-
-
     [LuaCallCSharp]
     public static List<Type> LuaCallCSharpUI
     {
@@ -95,13 +47,18 @@ public static class XLuaCustomExport
     [CSharpCallLua]
     public static List<Type> CSharpCallLuaList = new List<Type>()
     {
-//        typeof(Action<EventX>),
         typeof(UnityAction<int, GameObject>),
         typeof(UnityAction<int, Transform>),
         typeof(AssetBundleLoader.CAssetBundleLoaderDelegate),
-        typeof(Action<bool>),
+        typeof(Action),
+        typeof(Func<double, double, double>),
+        typeof(Action<string>),
+        typeof(Action<string,int>),
+        typeof(System.Action<bool>),
+        typeof(System.Action<Boolean>),
         typeof(Action<int>),
         typeof(Action<float>),
+        typeof(Action<double>),
         typeof(Action<bool, GameObject>),
         typeof(UnityEngine.Events.UnityEvent),
         typeof(UnityEngine.Events.UnityEvent<bool>),
@@ -115,19 +72,11 @@ public static class XLuaCustomExport
         typeof(Dropdown.DropdownEvent),
         typeof(System.Action<GameObject>),
         typeof(UnityEngine.Events.UnityAction<Vector2>),
-        typeof(KEngine.TextureLoader.CTextureLoaderDelegate),
         typeof(Action<PointerEventData>),
 //        typeof(UnityEvent<Vector2>),
         //typeof(TweenCallback),
         typeof(UnityEngine.Events.UnityAction<UnityEngine.EventSystems.BaseEventData>),
         typeof(UnityEngine.Events.UnityAction<string>),
-
-        typeof(Action),
-        typeof(Func<double, double, double>),
-        typeof(Action<string>),
-        typeof(Action<string,int>),
-        typeof(Action<int>),
-        typeof(Action<double>),
         typeof(Action<Sprite>),
         typeof(AbstractResourceLoader.LoaderDelgate),
         typeof(KEngine.AssetFileLoader.AssetFileBridgeDelegate),
@@ -137,10 +86,9 @@ public static class XLuaCustomExport
         typeof(UnityEngine.Events.UnityAction<string>),
         typeof(System.Collections.IEnumerator),
         typeof(System.Action<Transform,int>),
-        typeof(KEngine.SpriteLoader.CSpriteLoaderDelegate),
+        typeof(KEngine.KSpriteAtlasLoader.CKSpriteAtlasLoaderDelegate),
         typeof(System.Action<KEngine.UI.UIController, object[]>),
         typeof(UnityAction<string,string>),
-
     };
 
     [ReflectionUse]
@@ -148,6 +96,7 @@ public static class XLuaCustomExport
     {
         typeof(System.Action<GameObject>),
         typeof(System.Action<string, string, PointerEventData>),
+        typeof(System.Action<bool>),
     };
     
     [ReflectionUse]
@@ -172,9 +121,9 @@ public static class XLuaCustomExport
 
         //typeof(LuaBehaviour),
         typeof(KEngine.AssetFileLoader),
-        typeof(KEngine.StaticAssetLoader),
-        typeof(KEngine.SpriteLoader), 
-        typeof(InstanceAssetLoader),
+        //typeof(KEngine.StaticAssetLoader),
+        //typeof(KEngine.SpriteLoader), 
+        //typeof(InstanceAssetLoader),
         typeof(AssetBundleLoader),
         typeof(SceneLoader),
         typeof(AssetBundle),
@@ -186,6 +135,7 @@ public static class XLuaCustomExport
 #else
         typeof(UnityEngine.Profiler),
 #endif 
+        typeof(System.Action<bool>),
     };
 
     [LuaCallCSharp]
@@ -217,11 +167,15 @@ public static class XLuaCustomExport
         typeof(Transform),
         typeof(RectTransform),
         typeof(Time),
+#pragma warning disable 0618
         typeof(WWW),
+#pragma warning restore 0618
         typeof(Rigidbody),
         typeof(CharacterController),
         typeof(PlayerPrefs),
+#if !UNITY_2019_1_OR_NEWER
         typeof(GUIText),
+#endif
         typeof(Input),
         typeof(Renderer),
         typeof(Camera),
@@ -288,10 +242,10 @@ public static class XLuaCustomExport
     [GCOptimize]
     public static List<Type> LuaCallCSharpStruct = new List<Type>()
     {
-        typeof(Ray),
-        typeof(Vector2),
-        typeof(Vector3),
-        typeof(Color),
+        //typeof(Ray),
+        //typeof(Vector2),
+        //typeof(Vector3),
+        //typeof(Color),
         // typeof(AnimatorStateInfo),
         // 
     };
@@ -306,6 +260,11 @@ public static class XLuaCustomExport
                 new List<string>(){"UnityEngine.Security", "GetChainOfTrustValue"},
                 new List<string>(){"UnityEngine.CanvasRenderer", "onRequestRebuild"},
                 new List<string>(){"UnityEngine.Light", "areaSize"},
+                new List<string>(){"UnityEngine.Light", "shadowRadius"},
+                new List<string>(){"UnityEngine.Light", "SetLightDirty"},
+                new List<string>(){"UnityEngine.Light", "shadowAngle"},
+                new List<string>(){"UnityEngine.Light", "lightmapBakeType"},
+
                 new List<string>(){"UnityEngine.AnimatorOverrideController", "PerformOverrideClipListCleanup"},
 #if !UNITY_WEBPLAYER
                 new List<string>(){"UnityEngine.Application", "ExternalEval"},
@@ -320,7 +279,7 @@ public static class XLuaCustomExport
                 new List<string>(){"System.IO.DirectoryInfo", "Create", "System.Security.AccessControl.DirectorySecurity"},
                 new List<string>(){"UnityEngine.MonoBehaviour", "runInEditMode"},
 #if UNITY_2018_1_OR_NEWER
-                       new List<string>(){ "UnityEngine.QualitySettings", "streamingMipmapsRenderersPerFrame"},
+                new List<string>(){ "UnityEngine.QualitySettings", "streamingMipmapsRenderersPerFrame"},
 #endif
     };
 
@@ -331,4 +290,52 @@ public static class XLuaCustomExport
 
         return null;
     }
+
+    #region 其它库的注册
+    /*
+    /// <summary>
+    /// dotween的扩展方法在lua中调用
+    /// </summary>
+  [LuaCallCSharp]
+  [ReflectionUse]
+  public static List<Type> dotween_lua_call_cs_list = new List<Type>()
+  {
+      typeof(DG.Tweening.AutoPlay),
+      typeof(DG.Tweening.AxisConstraint),
+      typeof(DG.Tweening.Ease),
+      typeof(DG.Tweening.LogBehaviour),
+      typeof(DG.Tweening.LoopType),
+      typeof(DG.Tweening.PathMode),
+      typeof(DG.Tweening.PathType),
+      typeof(DG.Tweening.RotateMode),
+      typeof(DG.Tweening.ScrambleMode),
+      typeof(DG.Tweening.TweenType),
+      typeof(DG.Tweening.UpdateType),
+
+      typeof(DG.Tweening.DOTween),
+      typeof(DG.Tweening.DOVirtual),
+      typeof(DG.Tweening.EaseFactory),
+      typeof(DG.Tweening.Tweener),
+      typeof(DG.Tweening.Tween),
+      typeof(DG.Tweening.Sequence),
+      typeof(DG.Tweening.TweenParams),
+      typeof(DG.Tweening.Core.ABSSequentiable),
+
+      typeof(DG.Tweening.Core.TweenerCore<Vector3, Vector3, DG.Tweening.Plugins.Options.VectorOptions>),
+
+      typeof(DG.Tweening.TweenCallback),
+      typeof(DG.Tweening.TweenExtensions),
+      typeof(DG.Tweening.TweenSettingsExtensions),
+      typeof(DG.Tweening.ShortcutExtensions),
+      typeof(DG.Tweening.ShortcutExtensions43),
+      typeof(DG.Tweening.ShortcutExtensions46),
+      typeof(DG.Tweening.ShortcutExtensions50),
+     
+      //在生成xlua的代码时以下会报错
+      //typeof(DG.Tweening.DOTweenPath),
+      //typeof(DG.Tweening.DOTweenVisualManager),
+  }
+  **/
+
+    #endregion
 }

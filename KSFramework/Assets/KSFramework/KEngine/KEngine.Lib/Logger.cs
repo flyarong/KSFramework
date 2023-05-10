@@ -28,14 +28,18 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+
 #if !KENGINE_DLL
 using UnityEngine;
 #endif
 #if UNITY_EDITOR
 using UnityEditor;
+using UnityEditor.Callbacks;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using UnityEditor.EditorTools;
+
 #endif
 
 namespace KEngine
@@ -44,16 +48,11 @@ namespace KEngine
     {
         All = 0,
         Trace,
-        Debug,
         Info, // Info, default
         Warning,
         Error,
     }
-
-    [Obsolete("The name 'Logger' conflict with Unity 5 'Logger', use 'Log' instead, at 2016/04/08")]
-    public class Logger : Log
-    {}
-
+    
     /// <summary>
     /// KEngine Logger, file write + console output
     /// </summary>
@@ -64,6 +63,7 @@ namespace KEngine
 
         private static event LogCallback LogCallbackEvent;
         private static bool _hasRegisterLogCallback = false;
+        public static long TotalFrame;
 
         /// <summary>
         /// 第一次使用时注册，之所以不放到静态构造器，因为多线程问题
@@ -122,14 +122,13 @@ namespace KEngine
 #endif
 
         public static event Action<string> LogErrorEvent;
-
+      
         static Log()
         {
 #if !KENGINE_DLL
             // isDebugBuild先预存起来，因为它是一个get_属性, 在非Unity主线程里不能用，导致多线程网络打印log时报错
             try
             {
-                //IsDebugBuild = Debug.isDebugBuild;
                 IsUnityEditor = Application.isEditor;
             }
             catch (Exception e)
@@ -138,7 +137,7 @@ namespace KEngine
                 Log.LogConsole_MultiThread(e.Message + " , " + e.StackTrace);
             }
 #endif
-
+            InitLog2File();
 #if UNITY_EDITOR
             InitLogUtility();
 #endif
@@ -191,55 +190,7 @@ namespace KEngine
                 }
             }
         }
-
-        /// <summary>
-        /// Check if a object null
-        /// </summary>
-        /// <param name="obj"></param>
-        /// <param name="formatStr"></param>
-        /// <param name="args"></param>
-        /// <returns></returns>
-        [Obsolete("Use Debugger.Check instead")]
-        public static bool Check(object obj, string formatStr = null, params object[] args)
-        {
-            if (obj != null) return true;
-
-            if (string.IsNullOrEmpty(formatStr))
-                formatStr = "[Check Null] Failed!";
-
-            LogError("[!!!]" + formatStr, args);
-            return false;
-        }
-
-        [Obsolete("Use Debugger.Assert instead")]
-        public static void Assert(bool result)
-        {
-            if (result)
-                return;
-
-            LogErrorWithStack("Assertion Failed!", 2);
-
-            throw new Exception("Assert"); // 中断当前调用
-        }
-
-        [Obsolete("Use Debugger.Assert instead")]
-        public static void Assert(int result)
-        {
-            Assert(result != 0);
-        }
-
-        [Obsolete("Use Debugger.Assert instead")]
-        public static void Assert(Int64 result)
-        {
-            Assert(result != 0);
-        }
-
-        [Obsolete("Use Debugger.Assert instead")]
-        public static void Assert(object obj)
-        {
-            Assert(obj != null);
-        }
-
+        
         // 这个使用系统的log，这个很特别，它可以再多线程里用，其它都不能再多线程内用！！！
         public static void LogConsole_MultiThread(string log, params object[] args)
         {
@@ -251,21 +202,22 @@ namespace KEngine
                 Console.WriteLine(log, args);
         }
 
+        private static int mainthreadid = System.Threading.Thread.CurrentThread.ManagedThreadId;
+        public static double GetMonoUseMemory()
+        {
+            var ismain = mainthreadid == System.Threading.Thread.CurrentThread.ManagedThreadId ;
+            //乘法比除法快，所以/1024改成 *0.0009765625
+            var memory = ismain? UnityEngine.Profiling.Profiler.GetMonoUsedSizeLong() * 0.0009765625 *0.0009765625 :0 ;
+            return memory;
+        }
+        
+        #region log函数
+        
         public static void Trace(string log, params object[] args)
         {
             DoLog(log, args, LogLevel.Trace);
         }
-
-        public static void Debug(string log, params object[] args)
-        {
-            DoLog(log, args, LogLevel.Debug);
-        }
-
-        //[Obsolete]
-        //public static void Trace(string log, params object[] args)
-        //{
-        //    DoLog(string.Format(log, args), LogLevel.Debug);
-        //}
+        
         public static void Info(string log, params object[] args)
         {
             DoLog(log, args, LogLevel.Info);
@@ -295,7 +247,7 @@ namespace KEngine
         public static void LogErrorWithStack(string err = "", int stack = 2)
         {
             StackFrame sf = GetTopStack(stack);
-            string log = string.Format("[ERROR]{0}\n\n{1}:{2}\t{3}", err, sf.GetFileName(), sf.GetFileLineNumber(),
+            string log = string.Format("{0}\n\n{1}:{2}\t{3}", err, sf.GetFileName(), sf.GetFileLineNumber(),
                 sf.GetMethod());
             Console.Write(log);
             DoLog(log, null, LogLevel.Error);
@@ -308,7 +260,6 @@ namespace KEngine
         public static StackFrame GetTopStack(int stack = 2)
         {
             StackFrame[] stackFrames = new StackTrace(true).GetFrames();
-            ;
             StackFrame sf = stackFrames[Math.Min(stack, stackFrames.Length - 1)];
             return sf;
         }
@@ -316,6 +267,7 @@ namespace KEngine
         public static void Error(string err, params object[] args)
         {
             LogErrorWithStack(string.Format(err, args), 2);
+            
         }
 
         public static void LogError(string err, params object[] args)
@@ -337,11 +289,12 @@ namespace KEngine
         {
             if (LogLevel > emLevel)
                 return;
-            if (args != null)
+            if (args != null && args.Length > 0)
                 szMsg = string.Format(szMsg, args);
-            szMsg = string.Format("[{0}]{1}\n\n=================================================================\n\n",
-                DateTime.Now.ToString("HH:mm:ss.ffff"), szMsg);
-#if UNITY_EDITOR
+            //NOTE 如果报错string.Format 且整条日志是json格式的需要进行转义: {{代替{，用}}代替}
+            szMsg = string.Format("[{0}] {1}(frame:{2},mem:{3:0.##}MB){4}",
+                emLevel,DateTime.Now.ToString("HH:mm:ss.fff"), TotalFrame,GetMonoUseMemory(),szMsg);
+#if UNITY_EDITOR && (UNITY_5 || UNITY2017)
             StackTrace stackTrace = new StackTrace(true);
             var stackFrame = stackTrace.GetFrame(2);
             s_LogStackFrameList.Add(stackFrame);
@@ -372,35 +325,47 @@ namespace KEngine
                     break;
             }
         }
+        
+        #endregion
+        
+        #region log2file
 
-        public static void LogToFile(string szMsg)
+        private static string log_file_path;
+        static void InitLog2File()
         {
-            LogToFile(szMsg, true); // 默认追加模式
+            if (!string.IsNullOrEmpty(log_file_path))
+            {
+                return;
+            }
+            //TODO 考虑日志文件累积越来越多问题
+            log_file_path = GetLogPath();
+            string dir = Path.GetDirectoryName(log_file_path);
+            if (!Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
         }
-
+        
         // 是否写过log file
         public static bool HasLogFile()
         {
             string fullPath = GetLogPath();
             return File.Exists(fullPath);
         }
-
-        // 写log文件
-        public static void LogToFile(string szMsg, bool append)
+        
+        public static void LogToFile(string msg,params object[] args)
         {
-            string fullPath = GetLogPath();
-            string dir = Path.GetDirectoryName(fullPath);
-            if (!Directory.Exists(dir))
-                Directory.CreateDirectory(dir);
-
-            using (
-                FileStream fileStream = new FileStream(fullPath, append ? FileMode.Append : FileMode.CreateNew,
+            var szMsg = args != null && args.Length > 0 ? string.Format(msg, args) : msg;
+            if (IsUnityEditor)
+            {
+                DoLog(szMsg,  null,LogLevel.Info);
+            }
+            szMsg = string.Format("[FILE] {0}{1}",DateTime.Now.ToString("HH:mm:ss.ffff"), szMsg);
+            using (FileStream fileStream = new FileStream(log_file_path,  FileMode.Append,
                     FileAccess.Write, FileShare.ReadWrite)) // 不会锁死, 允许其它程序打开
             {
                 lock (fileStream)
                 {
-                    StreamWriter writer = new StreamWriter(fileStream); // Append
-                    writer.Write(szMsg);
+                    StreamWriter writer = new StreamWriter(fileStream);
+                    writer.WriteLine(szMsg);
                     writer.Flush();
                     writer.Close();
                 }
@@ -410,26 +375,154 @@ namespace KEngine
         // 用于写日志的可写目录
         public static string GetLogPath()
         {
-            string logPath;
-
-#if !KENGINE_DLL
+            string logPath ;
             if (IsUnityEditor)
-#endif
-
-                logPath = "logs/";
-#if !KENGINE_DLL
+            {
+                logPath = Path.Combine(Application.dataPath, "../logs/");
+            }
             else
-                logPath = Path.Combine(Application.persistentDataPath, "logs/");
-#endif
-
+            {
+                logPath = Path.Combine(Application.temporaryCachePath, "logs/");    
+            }
+            // 每次启动游戏都用一个新的日志文件
             var now = DateTime.Now;
-            var logName = string.Format("game_{0}_{1}_{2}.log", now.Year, now.Month, now.Day);
+            var logName = string.Format("game_{0}_{1}_{2}_{3}_{4}_{5}.log", now.Year, now.Month, now.Day,now.Hour,now.Minute,now.Second);
 
             return logPath + logName;
         }
-
+        
+        #endregion
+        
         #region 控制台双击日志跳到指定行
-#if UNITY_EDITOR
+#if UNITY_EDITOR 
+        #if UNITY_2018_1_OR_NEWER
+        private static  Type _consoleWindowType;
+        private static  FieldInfo _activeTextInfo;
+        private static  FieldInfo _consoleWindowInfo;
+        private static  MethodInfo _setActiveEntry;
+        private static  object[] _setActiveEntryArgs;
+        private static  object _consoleWindow;
+
+        static void InitLogUtility()
+        {
+            _consoleWindowType = Type.GetType("UnityEditor.ConsoleWindow,UnityEditor");
+            if (_consoleWindowType == null)
+            {
+                UnityEngine.Debug.LogError("初始化[双击日志跳到指定行]失败，未找到(UnityEditor.ConsoleWindow,UnityEditor),请检查Unity版本");
+                return;
+            }
+            _activeTextInfo = _consoleWindowType.GetField("m_ActiveText", BindingFlags.Instance | BindingFlags.NonPublic);
+            _consoleWindowInfo = _consoleWindowType.GetField("ms_ConsoleWindow", BindingFlags.Static | BindingFlags.NonPublic);
+            _setActiveEntry = _consoleWindowType.GetMethod("SetActiveEntry", BindingFlags.Instance | BindingFlags.NonPublic);
+            _setActiveEntryArgs = new object[] { null };
+        }
+        
+         [OnOpenAsset]
+        private static bool OnOpenAsset(int instanceID, int line)
+        {
+            UnityEngine.Object instance = EditorUtility.InstanceIDToObject(instanceID);
+            if (AssetDatabase.GetAssetOrScenePath(instance).EndsWith(".cs"))
+            {
+                return OpenAsset(instance.name);
+            }
+            return false;
+        }
+
+        private  static  bool OpenAsset(string fileName)
+        {
+            if (fileName != "Logger")
+            {
+                //Unity2019中可以在堆栈中选中其它文件,手动选择的不处理
+                return false;
+            }
+            string stackTrace = GetStackTrace();
+            if (!string.IsNullOrEmpty(stackTrace))
+            {
+                if(stackTrace.Contains("Logger.cs"))
+                {
+                    if (stackTrace.Contains("LUA:"))
+                    {
+                        Regex reg = new Regex(@".*\[string ""(.*)""\]:(\d+):.*");
+                        string luaFile = reg.Match(stackTrace).Groups[1].Value;
+                        int luaLine = int.Parse(reg.Match(stackTrace).Groups[2].Value);
+
+                        string fullPath = Application.dataPath.Replace("Assets", "") + "./Product/Lua/" + luaFile + ".lua";
+                        //todo IDEA或Rider中跳到lua文件的指定行
+                        return false;
+                    }
+                    else
+                    {
+                        string[] paths = stackTrace.Split('\n');
+                        int index = 0;
+                        var dstStack =  (stackTrace.StartsWith("[Error]") || stackTrace.StartsWith("[Exception]")) ? 4 : 3;
+                        for (int i = 0; i < paths.Length; i++)
+                        {
+                            if (paths[i].Contains(" (at "))
+                            {
+                                index += 1;
+                                if (index == dstStack)
+                                {
+                                    //C#代码打印的
+                                    return OpenScriptAsset(paths[i]);
+                                }
+                            }
+                        }
+                    }
+                }
+               
+            }
+            return false;
+        }
+
+        private static  bool OpenScriptAsset(string path)
+        {
+            int startIndex = path.IndexOf(" (at ") + 5;
+            int endIndex = path.IndexOf(".cs:") + 3;
+            string filePath = path.Substring(startIndex, endIndex - startIndex);
+            string lineStr = path.Substring(endIndex + 1, path.Length - endIndex - 2);
+
+            TextAsset asset = AssetDatabase.LoadAssetAtPath<TextAsset>(filePath);
+            if (asset != null)
+            {
+                int line = 0;
+                if (int.TryParse(lineStr, out line))
+                {
+                    object consoleWindow = GetConsoleWindow();
+                    _setActiveEntry.Invoke(consoleWindow, _setActiveEntryArgs);
+
+                    EditorGUIUtility.PingObject(asset);
+                    AssetDatabase.OpenAsset(asset, line);
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        private static string GetStackTrace()
+        {
+            object consoleWindow = GetConsoleWindow();
+
+            if (consoleWindow != null)
+            {
+                if (consoleWindow == EditorWindow.focusedWindow as object)
+                {
+                    object value = _activeTextInfo.GetValue(consoleWindow);
+                    return value != null ? value.ToString() : "";
+                }
+            }
+            return "";
+        }
+
+        private  static object GetConsoleWindow()
+        {
+            if (_consoleWindow == null)
+            {
+                _consoleWindow = _consoleWindowInfo.GetValue(null);
+            }
+            return _consoleWindow;
+        }
+        
+        #else
         private static string s_logFilePath = "Assets/KSFramework/KEngine/KEngine.Lib/Logger.cs";
         private static int s_InstanceID;
         private static int[] s_Lines = { 354, 361, 368 };
@@ -541,7 +634,7 @@ namespace KEngine
                         string luaFile = reg.Match(_luaLog).Groups[1].Value;
                         int luaLine = int.Parse(reg.Match(_luaLog).Groups[2].Value);
 
-                        string fullPath = Application.dataPath.Replace("Assets", "") + "../Product/Lua/" + luaFile + ".lua";
+                        string fullPath = Application.dataPath.Replace("Assets", "") + "./Product/Lua/" + luaFile + ".lua";
                         return openFileInSublime(fullPath, luaLine);
                     }
                     string fileName = stackFrame.GetFileName();
@@ -553,7 +646,7 @@ namespace KEngine
 
             return false;
         }
-
+#endif
         static bool openFileInVS(string filePath, int line)
         {
             System.Diagnostics.Process scriptProc = new System.Diagnostics.Process();
@@ -592,6 +685,7 @@ namespace KEngine
             }
             return true;
         }
+
 #endif
         #endregion
     }
